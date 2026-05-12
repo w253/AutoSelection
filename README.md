@@ -262,17 +262,36 @@ def register_operators(registry):
 Run with:
 
 ```bash
-EXTENSION_MODULES=my_package.my_extension \
+EXTENSION_MODULES=examples.extensions.dummy_extension \
 OPERATOR_CATALOG=/path/to/operator_catalog.yaml \
 bash runs/run_mcts_e2e.sh
 ```
 
-For MCTS/LLM search, also add the operator description and tunable parameters to
-the catalog passed via `OPERATOR_CATALOG`; the registry controls execution, while
-the catalog controls how the proposer talks about the operator. Extension
-operators are appended to the search vocabulary automatically. The surrogate uses
-a generic numeric intensity feature for unknown operators; add a dedicated branch
-in `ANOVARegressor._encode_operator()` if a new operator needs custom features.
+For MCTS/LLM search, the operator must also have prompt metadata. You can either
+add it to the catalog passed via `OPERATOR_CATALOG`, or expose an
+`OPERATOR_CATALOG_PATCH` / `get_operator_catalog_patch()` from the extension
+module. At runtime the patch is merged into `operator_catalog.extended.yaml` in
+the run directory and passed to the proposer. The registry controls execution;
+the catalog controls how the proposer talks about the operator.
+
+If a new operator needs cold-start features, expose:
+
+```python
+def precompute_features(*, samples, context):
+    for sample in samples:
+        sample.metadata.extra["my_feature"] = {"score": 0.0}
+    return {"feature_key": "my_feature", "samples": len(samples)}
+```
+
+This runs after built-in scoring/SAE ingest and before warmup/search execution,
+so operators can consume the cached metadata during `transform()`. Keep expensive
+metric computation in `precompute_features()` and keep `transform()`
+deterministic.
+
+Extension operators are appended to the search vocabulary automatically. The
+surrogate uses a generic numeric intensity feature for unknown operators; add a
+dedicated branch in `ANOVARegressor._encode_operator()` if a new operator needs
+custom features.
 
 Recipe execution hooks can observe lifecycle events without changing each
 operator. An extension module may expose `get_recipe_hooks()` or `RECIPE_HOOKS`.
@@ -295,6 +314,7 @@ transformations in operators so traces and manifests stay reproducible.
 bash -n runs/run_mcts_e2e.sh
 bash -n runs/run_ood_eval.sh
 python -m compileall -q runs src
+PYTHONPATH=src:. python -m unittest tests.test_extensions_smoke
 ```
 
 If `run_mcts_e2e_engine.py --help` fails with `ModuleNotFoundError:

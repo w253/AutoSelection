@@ -41,7 +41,12 @@ from recipe_sandbox.search.operator_policy import resolve_operator_space
 from recipe_sandbox.agents.action_llm import ActionLLMGenerator, LLMConfig
 from recipe_sandbox.agents.feedback_llm import FeedbackLLM
 from recipe_sandbox.agents.selection_llm import SelectionLLM
-from recipe_sandbox.extensions import load_extensions, parse_extension_modules
+from recipe_sandbox.extensions import (
+    load_extensions,
+    materialize_extension_operator_catalog,
+    parse_extension_modules,
+    run_extension_precomputations,
+)
 from recipe_sandbox.schema.io import iter_samples_without_numeric_extras
 
 logging.basicConfig(
@@ -405,6 +410,7 @@ def parse_args():
 
 def run_e2e():
     args = parse_args()
+    extension_modules = parse_extension_modules(args.extension_modules)
     
     if not args.output_dir:
         if args.resume:
@@ -820,6 +826,20 @@ def run_e2e():
     elif skip_sae:
         logger.info("SAE ingest skipped because the cache is complete.")
     
+    if extension_modules:
+        run_extension_precomputations(
+            extension_modules,
+            samples=all_train_samples,
+            context={
+                "output_dir": str(out_dir),
+                "task_config": task_config,
+                "pool_size": len(all_train_samples),
+                "required_benchmark_names": required_benchmark_names,
+                "target_benchmark_by_file": dict(target_benchmark_by_file),
+                "sparse_cache": sparse_cache,
+            },
+        )
+
     # ---- Step 6: Write pool (text-only) ----
     pool_train_dir.mkdir(parents=True, exist_ok=True)
     pool_train_path = str(pool_train_dir / "pool.jsonl")
@@ -842,7 +862,6 @@ def run_e2e():
     
     # 4. Executor and Registry
     registry = build_default_operator_registry()
-    extension_modules = parse_extension_modules(args.extension_modules)
     extension_hooks = load_extensions(extension_modules, registry=registry)
     if extension_modules:
         logger.info(
@@ -864,7 +883,11 @@ def run_e2e():
                               hooks=extension_hooks)
     
     # 5. LLM Agents (Action, Feedback, Selection) + ThinkingLogger
-    catalog_path = args.operator_catalog
+    catalog_path = materialize_extension_operator_catalog(
+        args.operator_catalog,
+        str(out_dir / "operator_catalog.extended.yaml"),
+        extension_modules,
+    )
     thinking_model = args.thinking_model or args.llm_model
     
     # Initialize ThinkingLogger for recording LLM reasoning traces
