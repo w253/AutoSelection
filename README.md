@@ -138,6 +138,45 @@ export BASE_MODEL=/path/to/base_model
 export SAE_PATH=/path/to/sae/layers.27
 ```
 
+## SAE Training
+
+AutoSelection consumes SAE features during cold-start scoring and subset-state
+construction. This repository assumes an SAE checkpoint already exists at
+`SAE_PATH`; train or reuse that artifact before launching the search.
+
+We recommend [EleutherAI/sparsify](https://github.com/EleutherAI/sparsify) for
+SAE training. Its README describes a lightweight library for training k-sparse
+SAEs and transcoders on HuggingFace language-model activations, computing
+activations on the fly instead of caching them to disk. The same tool supports
+CLI training, custom hookpoints, finetuning existing SAEs, and distributed
+training through `torchrun`.
+
+Install sparsify separately:
+
+```bash
+pip install eai-sparsify
+```
+
+Minimal training pattern:
+
+```bash
+python -m sparsify /path/to/base_model /path/to/hf_dataset \
+  --hookpoints "layers.27"
+```
+
+For multi-GPU jobs, sparsify supports `torchrun`; for example:
+
+```bash
+torchrun --nproc_per_node gpu -m sparsify /path/to/base_model \
+  --layers 27 \
+  --batch_size 1 \
+  --grad_acc_steps 8 \
+  --ctx_len 2048
+```
+
+After training, point `SAE_PATH` to the layer artifact consumed by this codebase,
+for example `models/sae/layers.27`.
+
 AutoSelection's proposer, summarizer, and ranker use an OpenAI-compatible LLM
 endpoint:
 
