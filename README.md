@@ -29,8 +29,15 @@ recipe_sandbox/
 
 ## 2. Environment Setup
 
-Use Python 3.10 or newer. Install the accelerator-specific `torch`, `vllm`,
-and `LLaMA-Factory` builds that match your CUDA/NPU cluster.
+Use Python 3.10 or newer. The two core runtime dependencies are:
+
+```text
+LLaMA-Factory 0.9.5.dev0
+vLLM          0.10.0
+```
+
+Install the accelerator-specific `torch` build that matches your CUDA/NPU
+cluster, then install the supporting Python packages used by the pipeline.
 
 Example:
 
@@ -40,7 +47,8 @@ conda activate autosel
 pip install -U pip
 
 pip install numpy scipy scikit-learn pyyaml tqdm pandas pyarrow datasets openai
-pip install torch transformers accelerate peft deepspeed vllm llamafactory
+pip install torch transformers accelerate peft deepspeed
+pip install vllm==0.10.0 llamafactory==0.9.5.dev0
 ```
 
 For Ascend/NPU environments, also install the matching `torch-npu` package and
@@ -50,7 +58,7 @@ set `ASCEND_RT_VISIBLE_DEVICES` as needed. For CUDA environments, set
 Make sure these commands are available before running the full pipeline:
 
 ```bash
-python -c "import sklearn, torch, transformers, vllm"
+python -c "import sklearn, torch, transformers, vllm; print(vllm.__version__)"
 llamafactory-cli --help
 ```
 
