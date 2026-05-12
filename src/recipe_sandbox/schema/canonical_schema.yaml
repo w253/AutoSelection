@@ -1,0 +1,137 @@
+schema_version: v1
+description: >
+  Target schema for CanonicalSample.
+  The LLM agent uses this config to understand what fields to produce
+  when mapping arbitrary JSONL data into the canonical format.
+
+fields:
+  sample_id:
+    type: str
+    required: true
+    description: >
+      Unique identifier for the sample. If the source data has an id field,
+      use it. Otherwise generate a stable hash from the content.
+
+  source_name:
+    type: str
+    required: true
+    description: >
+      Name of the data source (e.g. dataset name). Can be provided externally
+      if not present in the data.
+
+  messages:
+    type: "list[Message]"
+    required: true
+    description: >
+      Conversation messages. Each message has role, content, and optional fields.
+      This is the core data. The agent should figure out how to map the source
+      data's conversation/instruction/input/output fields into a list of messages.
+    items:
+      role:
+        type: str
+        enum: ["system", "user", "assistant", "tool"]
+        required: true
+        description: "Role of the message sender."
+      content:
+        type: str
+        required: true
+        description: "Text content of the message."
+      tool_name:
+        type: str
+        required: false
+        description: "Name of the tool if role is tool."
+      tool_call_id:
+        type: str
+        required: false
+        description: "Tool call ID for tool responses."
+      metadata:
+        type: dict
+        required: false
+        default: {}
+
+  target:
+    type: Target
+    required: false
+    description: >
+      Expected target/answer. Map from output/answer/response/label fields.
+    fields:
+      text:
+        type: str
+        required: false
+        description: "The expected text answer or output."
+      structured:
+        type: dict
+        required: false
+        default: {}
+        description: "Structured target data (e.g. JSON answer)."
+
+  metadata:
+    type: SampleMetadata
+    required: false
+    description: "Sample-level metadata."
+    fields:
+      task_type:
+        type: str
+        enum: ["reasoning", "factual_qa", "code", "chat", "style_imitation", "structured_extraction", "other"]
+        default: "other"
+      source_split:
+        type: str
+        enum: ["train", "dev", "test", "unspecified"]
+        default: "unspecified"
+      language:
+        type: str
+        required: false
+      format_tag:
+        type: str
+        required: false
+      tool_use:
+        type: bool
+        default: false
+      has_multiturn:
+        type: bool
+        default: false
+      has_system_prompt:
+        type: bool
+        default: false
+      quality_flags:
+        type: "list[str]"
+        default: []
+      license:
+        type: str
+        required: false
+      extra:
+        type: dict
+        default: {}
+        description: "Any additional metadata not covered above goes here."
+
+  tags:
+    type: "list[str]"
+    default: []
+
+  canonical_version:
+    type: str
+    default: "v1"
+
+  raw_fingerprint:
+    type: str
+    required: false
+
+  provenance:
+    type: Provenance
+    required: false
+    fields:
+      raw_path:
+        type: str
+        required: false
+      raw_format:
+        type: str
+        required: false
+      raw_record_id:
+        type: str
+        required: false
+      converter_name:
+        type: str
+        required: false
+      converter_version:
+        type: str
+        default: "v1"

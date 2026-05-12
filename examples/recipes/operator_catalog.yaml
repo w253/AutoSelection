@@ -1,0 +1,230 @@
+version: v3
+
+# ==========================================================
+#  Operator Catalog — 5 Operator Families for AutoSelection
+#  Each family lists ALL available methods from the literature
+#  (autoselection_v2.md §4.2) with tunable hyperparameters.
+# ==========================================================
+
+families:
+
+  # ----------------------------------------------------------
+  # F1: Source Mixing
+  #   Decides how to blend multiple data sources.
+  #   Refs: DoReMi (NeurIPS 2023), Data Mixing Optimization
+  # ----------------------------------------------------------
+  source_mixing:
+    operators:
+
+      source_mix:
+        description: "Manual or uniform sampling and blending of multiple sources by weight"
+        params:
+          total_samples:
+            type: int
+            default: null
+            description: "Total output samples (null = use all available)"
+          source_weights:
+            type: dict
+            default: null
+            description: "Optional {source_name: weight} mapping; null = uniform across sources"
+          shuffle_within_source:
+            type: bool
+            default: true
+          seed:
+            type: int
+            default: 42
+          allow_oversample:
+            type: bool
+            default: false
+
+  # ----------------------------------------------------------
+  # F2: Task Relevance Selection
+  #   Select samples most helpful for the target task.
+  #   Refs: MONA (SAE-based), LESS (influence function),
+  #         IFD (instruction-following difficulty),
+  #         Data Whisperer (attention-based, training-free),
+  #         Small-model selector (cross-model transfer)
+  # ----------------------------------------------------------
+  task_relevance_selection:
+    operators:
+
+      mona_filter:
+        description: >
+          MONA: SAE activation similarity-based task relevance filter.
+          Computes cosine similarity between sample SAE activations
+          and target task activation centroids.
+        params:
+          fraction:
+            type: float
+            default: 0.5
+            range: [0.01, 1.0]
+            description: "Fraction of data to keep (top fraction by MONA score)"
+          top_k:
+            type: int
+            default: null
+            description: "Absolute number to keep (overrides fraction if set)"
+          threshold:
+            type: float
+            default: null
+            description: "Score threshold (overrides fraction/top_k if set)"
+          descending:
+            type: bool
+            default: true
+          keep_missing_scores:
+            type: bool
+            default: false
+
+  # ----------------------------------------------------------
+  # F4: Dedup & Redundancy Control
+  #   Remove duplicates or near-duplicates.
+  #   Refs: exact dedup, MinHash LSH, embedding cosine, SemDeDup
+  # ----------------------------------------------------------
+  dedup_or_redundancy_control:
+    operators:
+
+      semantic_dedup:
+        description: "Deduplication via exact hash, MinHash LSH, or embedding cosine"
+        params:
+          strategy:
+            type: str
+            default: "minhash"
+            choices: ["exact", "minhash", "embedding_cosine"]
+          jaccard_threshold:
+            type: float
+            default: 0.8
+            range: [0.5, 0.99]
+            description: "Jaccard similarity threshold for MinHash (lower = more aggressive)"
+          ngram_size:
+            type: int
+            default: 5
+            range: [3, 10]
+          num_perm:
+            type: int
+            default: 128
+            description: "Number of MinHash permutations (higher = more accurate)"
+          threshold:
+            type: float
+            default: 0.98
+            range: [0.8, 1.0]
+            description: "Cosine similarity threshold for embedding_cosine strategy"
+          embedding_path:
+            type: str
+            default: "metadata.extra.embedding"
+          keep_missing_embeddings:
+            type: bool
+            default: true
+
+      semdedup:
+        description: >
+          SemDeDup: Semantic deduplication via SAE sparse feature clustering.
+          Uses K-means clustering on SAE activations, then removes
+          intra-cluster near-duplicates exceeding a cosine similarity threshold.
+          NOTE: Requires SAE sparse features precomputed in metadata.
+          Prefer semantic_dedup for general use; use semdedup only when SAE
+          features are available and fine-grained sparse dedup is desired.
+          Ref: https://arxiv.org/abs/2303.09540 (ICLR 2023)
+        params:
+          num_clusters:
+            type: int
+            default: 1000
+            range: [100, 10000]
+            description: "Number of K-means clusters for grouping semantically similar samples"
+          cosine_threshold:
+            type: float
+            default: 0.95
+            range: [0.7, 0.99]
+            description: "Intra-cluster cosine similarity threshold above which items are deduplicated"
+          embedding_path:
+            type: str
+            default: "metadata.extra.embedding"
+            description: "Metadata path to pre-computed embeddings"
+          keep_missing_embeddings:
+            type: bool
+            default: true
+          seed:
+            type: int
+            default: 42
+
+  # ----------------------------------------------------------
+  # 0-Overhead Surrogate Specific
+  # ----------------------------------------------------------
+  zero_overhead_features:
+    operators:
+      ifd_filter:
+        description: "Filter based on Instruction-Following Difficulty."
+        params:
+          fraction:
+            type: float
+            default: 0.5
+            range: [0.05, 1.0]
+          descending:
+            type: bool
+            default: true
+
+      ngram_entropy:
+        description: "Filter based on N-Gram Shannon Entropy (Lexical)."
+        params:
+          fraction:
+            type: float
+            default: 0.5
+            range: [0.05, 1.0]
+
+      action_object_branching:
+        description: "Filter based on SpaCy Syntactic Tree Depth."
+        params:
+          fraction:
+            type: float
+            default: 0.5
+            range: [0.05, 1.0]
+
+      truncate_samples:
+        description: "Hard-cap the dataset to a fixed total sample count."
+        params:
+          total_samples:
+            type: int
+            default: 10000
+
+      varentropy_mix:
+        description: "Multi-source mixing based on source-level varentropy weights. Only available when explicitly enabled via --allow_source_mix flag."
+        params:
+          total_samples:
+            type: int
+            default: 10000
+          temperature:
+            type: float
+            default: 1.0
+            range: [0.1, 2.0]
+
+      varentropy_filter:
+        description: "Filter based on sample-level varentropy scores (higher = more complex reasoning)."
+        params:
+          fraction:
+            type: float
+            default: 0.5
+            range: [0.05, 1.0]
+          top_k:
+            type: int
+            default: null
+          threshold:
+            type: float
+            default: null
+          descending:
+            type: bool
+            default: true
+          keep_missing_scores:
+            type: bool
+            default: false
+
+  set_operations:
+    operators:
+      union:
+        description: >
+          Merge the current recipe output with the output set of a previously
+          evaluated recipe by sample_id. Use this to recover data from another
+          successful branch; this is a cross-recipe merge, not a merge of two
+          local steps.
+        params:
+          source_recipe:
+            type: str
+            default: null
+            description: "Previously evaluated recipe whose dataset.ids.json should be unioned into the current output"
