@@ -1,0 +1,14 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+
+# Local data/model artifacts. Keep README paths as expected local inputs,
+# but do not commit bulky datasets or downloaded model weights.
+data/
+models/
+
+# Runtime outputs from search/evaluation scripts.
+runs/e2e_mcts_*/
+runs/ood_eval*/
+runs/multi_ckpt_eval*/
+runs/*.log
