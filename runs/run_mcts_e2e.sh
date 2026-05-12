@@ -39,7 +39,7 @@ TARGET_VECTOR_DATA="${TARGET_VECTOR_DATA:-${DATA_DIR}/target_vector_samples}"
 EVAL_TASKS="${EVAL_TASKS:-gpqa:${DATA_DIR}/eval/gpqa_main.jsonl,gsm8k:${DATA_DIR}/eval/gsm8k_test.jsonl,bbh:${DATA_DIR}/eval/bbh_test.jsonl,mmlu:${DATA_DIR}/eval/mmlu_test.jsonl}"
 
 N_LHS_SEEDS="${N_LHS_SEEDS:-3}"
-BUDGET="${BUDGET:-20.0}"
+MAX_EVALUATIONS="${MAX_EVALUATIONS:-${EVAL_BUDGET:-${BUDGET:-15}}}"
 NUM_EPOCHS="${NUM_EPOCHS:-3.0}"
 SAE_CACHE_FROM="${SAE_CACHE_FROM:-}"
 CPU_MAX_WORKERS="${CPU_MAX_WORKERS:-16}"
@@ -79,7 +79,7 @@ echo "  SAE: ${SAE_PATH}"
 echo "  Target Vector Source: ${TARGET_VECTOR_DATA}"
 echo "  Agent: ${LLM_MODEL} @ ${OPENAI_BASE_URL}"
 echo "  Thinking Model: ${THINKING_MODEL}"
-echo "  Budget: ${BUDGET}h | LHS Seeds: ${N_LHS_SEEDS}"
+echo "  Evaluation Budget: ${MAX_EVALUATIONS} full evals | LHS Seeds: ${N_LHS_SEEDS}"
 echo "  Operator Catalog: ${OPERATOR_CATALOG}"
 echo "  Eval TP: ${TENSOR_PARALLEL_SIZE}"
 if [ -n "${EXTENSION_MODULES}" ]; then
@@ -132,7 +132,7 @@ mkdir -p "${LOG_DIR}"
 LOG_FILE="${LOG_DIR}/experiment_$(date +%Y%m%d_%H%M%S).log"
 
 python runs/run_mcts_e2e_engine.py \
-    --budget "${BUDGET}" \
+    --max_evaluations "${MAX_EVALUATIONS}" \
     --n_lhs_seeds "${N_LHS_SEEDS}" \
     --base_model "${BASE_MODEL}" \
     --sae_path "${SAE_PATH}" \

@@ -128,7 +128,7 @@ bash runs/run_mcts_e2e.sh
 Common overrides:
 
 ```bash
-BUDGET=20.0 \
+MAX_EVALUATIONS=15 \
 N_LHS_SEEDS=3 \
 NUM_EPOCHS=3.0 \
 STAGNATION_PATIENCE=4 \
@@ -136,6 +136,9 @@ OPERATOR_CATALOG=examples/recipes/operator_catalog.yaml \
 TENSOR_PARALLEL_SIZE=1 \
 bash runs/run_mcts_e2e.sh
 ```
+
+`MAX_EVALUATIONS` counts completed full train+benchmark evaluations. Runtime
+hours are still recorded in logs, but they no longer stop the search.
 
 If using a custom DeepSpeed config:
 
@@ -162,6 +165,7 @@ engine.log
 experiment_*.log
 search_log.jsonl
 search_tree.json
+operator_catalog.extended.yaml   # only when extension catalog patches are used
 thinking_logs/
 recipes/
 canonical/
@@ -173,8 +177,8 @@ sae_caches/
 OOD evaluation uses:
 
 ```text
-data/eval/GraphWiz_test.jsonl
-data/eval/NLgraph_test.jsonl
+graphwiz        -> data/eval/GraphWiz_test.jsonl
+nlgraph_yesno  -> data/eval/NLgraph_test.jsonl
 ```
 
 Evaluate a full model:
@@ -220,7 +224,7 @@ Evaluate LoRA adapters against one base model:
 python runs/run_multi_ckpt_eval.py \
   --base_model_path /path/to/base_model \
   --checkpoints /path/to/adapter1 /path/to/adapter2 \
-  --tasks gpqa,gsm8k,bbh,mmlu,graph,graph_yesno \
+  --tasks gpqa,gsm8k,bbh,mmlu,graphwiz,nlgraph_yesno \
   --output_dir runs/multi_ckpt_eval
 ```
 
@@ -229,7 +233,7 @@ For sharded evaluation:
 ```bash
 python runs/run_multi_ckpt_eval.py \
   --checkpoints /path/to/ckpt \
-  --tasks gpqa,gsm8k,bbh,mmlu,graph,graph_yesno \
+  --tasks gpqa,gsm8k,bbh,mmlu,graphwiz,nlgraph_yesno \
   --num_shards 4 \
   --device_ids 0,1,2,3 \
   --output_dir runs/multi_ckpt_eval

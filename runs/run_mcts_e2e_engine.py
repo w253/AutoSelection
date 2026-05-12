@@ -261,6 +261,16 @@ def _parse_bool_arg(value: str) -> bool:
     raise argparse.ArgumentTypeError(f"Invalid boolean value: {value}")
 
 
+def _parse_evaluation_budget(value: Any) -> int:
+    try:
+        parsed = int(float(value))
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError(f"Invalid evaluation budget: {value}")
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("Evaluation budget must be positive.")
+    return parsed
+
+
 def _sample_has_all_benchmark_scores(sample: Any, benchmark_names: List[str]) -> bool:
     if not benchmark_names:
         return True
@@ -343,7 +353,18 @@ def parse_args():
     )
     
     # Search
-    parser.add_argument("--budget", type=float, default=20.0)
+    parser.add_argument(
+        "--max_evaluations",
+        type=_parse_evaluation_budget,
+        default=None,
+        help="Maximum number of completed full train+benchmark evaluations.",
+    )
+    parser.add_argument(
+        "--budget",
+        type=float,
+        default=None,
+        help="Deprecated alias for --max_evaluations; interpreted as an evaluation count.",
+    )
     parser.add_argument("--n_lhs_seeds", type=int, default=3)
     
     # Data Mode
@@ -405,7 +426,13 @@ def parse_args():
     parser.add_argument("--stagnation_patience", type=int, default=3,
                         help="Number of non-improving iterations before starting a new trajectory (default: 3)")
 
-    return parser.parse_args()
+    args = parser.parse_args()
+    default_eval_budget = _parse_evaluation_budget(
+        os.getenv("MAX_EVALUATIONS", os.getenv("EVAL_BUDGET", os.getenv("BUDGET", "15")))
+    )
+    if args.max_evaluations is None:
+        args.max_evaluations = _parse_evaluation_budget(args.budget) if args.budget is not None else default_eval_budget
+    return args
 
 
 def run_e2e():
@@ -1012,7 +1039,7 @@ def run_e2e():
         action_generator=agent,
         evaluator=evaluator,
         catalog_path=catalog_path,
-        budget_gpu_hours=args.budget,
+        max_evaluations=args.max_evaluations,
         search_log_path=log_path,
         k_exploration=1.5,
         n_lhs_seeds=args.n_lhs_seeds,
@@ -1037,6 +1064,12 @@ def run_e2e():
     logger.info("  MCTS SEARCH COMPLETE")
     logger.info("  Ultimate Pareto Optimal Recipe: %s", best_candidate.recipe.recipe_name)
     logger.info("  Score: %.2f | Utility: %.2f", best_candidate.score, best_candidate.utility)
+    logger.info(
+        "  Evaluations: %d/%d | Tracked time: %.2fh",
+        mcts_engine.completed_evaluations,
+        mcts_engine.max_evaluations,
+        mcts_engine.cumulative_cost,
+    )
     logger.info("  Check logs at %s", out_dir)
     logger.info("=" * 70)
 

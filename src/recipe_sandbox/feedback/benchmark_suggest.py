@@ -207,7 +207,7 @@ STATE_INTERPRETATIONS: Dict[str, _StateInterpretation] = {
         improve_msg="Extreme values indicate the filtering is biasing instruction difficulty. 0.5 is neutral.",
     ),
     "cumulative_cost_ratio": _StateInterpretation(
-        description="Fraction of total GPU budget consumed so far",
+        description="Fraction of total evaluation budget consumed so far",
         good_direction="lower",
     ),
 }

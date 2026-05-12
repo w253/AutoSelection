@@ -104,8 +104,8 @@ class SelectionLLM:
             experiment_insights: FeedbackLLM qualitative insights.
             best_score: Current best verified score (%).
             best_name: Name of the current best recipe.
-            budget_remaining: Remaining GPU budget in hours.
-            budget_total: Total GPU budget in hours.
+            budget_remaining: Remaining full-evaluation budget.
+            budget_total: Total full-evaluation budget.
             n_iterations: Number of completed iterations.
             pool_size: Total training data pool size.
             selection_context: Rich structured context dict.
@@ -339,12 +339,12 @@ Operator reference (available filtering methods):
 
         prompt = f"""You are a strategic advisor for an automated data selection search system. Your task is to select the SINGLE most promising candidate recipe for real evaluation.
 
-Real evaluation is expensive (requires full model training + benchmark evaluation, ~0.5-1.5 GPU hours). Your selection directly impacts the search efficiency.
+Real evaluation is expensive (requires full model training + benchmark evaluation). Your selection directly impacts the search efficiency.
 
 ## SEARCH STATE
 - Total data pool: {pool_size:,} samples
 - Iterations completed: {n_iterations}
-- Budget remaining: {budget_remaining:.1f}h / {budget_total:.1f}h ({budget_pct:.0f}%)
+- Evaluation budget remaining: {budget_remaining:.0f} / {budget_total:.0f} full evals ({budget_pct:.0f}%)
 - Current best score: {best_score:.2f}% (recipe: {best_name})
 - Search phase: {phase}
 {parent_section}

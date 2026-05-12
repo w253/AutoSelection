@@ -44,7 +44,8 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
         evaluator: BaseEvaluator,
         catalog_path: str,
         *,
-        budget_gpu_hours: float = 10.0,
+        budget_gpu_hours: Optional[float] = None,
+        max_evaluations: int = 15,
         utility_config: Optional[UtilityConfig] = None,
         search_log_path: Optional[str] = None,
         k_exploration: float = 1.0,
@@ -58,6 +59,7 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
         super().__init__(
             manager, recipe_executor, action_generator, evaluator,
             budget_gpu_hours=budget_gpu_hours,
+            max_evaluations=max_evaluations,
             utility_config=utility_config,
             search_log_path=search_log_path
         )
@@ -696,6 +698,7 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
                 "proposal_index": getattr(c, "proposal_index", 0),
                 "origin_type": getattr(c, "origin_type", "candidate"),
                 "iteration": c.iteration,
+                "evaluation_index": getattr(c, "evaluation_index", 0),
                 "eval_mode": eval_mode,
                 "actual_score": c.score,
                 "predicted_score": predicted_score,
@@ -716,6 +719,9 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
                 "stagnation_patience": getattr(self, "stagnation_patience", 3),
                 "restart_policy": "llm_stagnation_triggered",
                 "total_trajectories": getattr(self, "_current_trajectory_id", 0) + 1,
+                "completed_evaluations": self.completed_evaluations,
+                "max_evaluations": self.max_evaluations,
+                "tracked_time_hours": round(self.cumulative_cost, 4),
                 "cumulative_cost_hours": round(self.cumulative_cost, 4),
                 "wall_clock_hours": wall_clock_hours,
                 "cost_breakdown": self._current_cost_breakdown(),
@@ -848,8 +854,8 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
         valid_warmup = [pr for pr in warmup_results if pr["valid"]]
 
         for pipeline_result in valid_warmup:
-            if self.cumulative_cost >= self.budget_gpu_hours:
-                logger.warning("Agent consumed budget during warm-up!")
+            if not self._has_evaluation_budget_remaining():
+                logger.warning("Evaluation budget exhausted during warm-up.")
                 break
             try:
                 self._evaluate_candidate(
@@ -953,13 +959,13 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
         return results  # type: ignore[return-value]
 
     # ------------------------------------------------------------------
-    #  Budget cost tracking in state vectors
+    #  Evaluation-budget tracking in state vectors
     # ------------------------------------------------------------------
 
     def _patch_cost_ratio(self, pipeline_result: Dict[str, Any]) -> None:
         """Inject cumulative_cost_ratio into the final state of step traces."""
         cost_ratio = round(
-            self.cumulative_cost / self.budget_gpu_hours if self.budget_gpu_hours > 0 else 0.0,
+            self.completed_evaluations / self.max_evaluations if self.max_evaluations > 0 else 0.0,
             6,
         )
         step_traces = pipeline_result.get("step_traces", [])
@@ -1013,6 +1019,7 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
             recipe_name=recipe.recipe_name,
             state_vector=final_state,
         )
+        evaluation_index = self._record_completed_evaluation()
 
         step_cost = eval_result.train_cost_gpu_hours + eval_result.eval_cost_gpu_hours
         utility = eval_result.dev_score  # utility = score (no cost penalty)
@@ -1036,6 +1043,7 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
             },
             proposal_index=int(getattr(recipe, "_proposal_index", 0)),
             origin_type=str(getattr(recipe, "_origin_type", "candidate")),
+            evaluation_index=evaluation_index,
         )
         self.history.append(candidate)
         self._write_log_entry(candidate)
@@ -1044,7 +1052,8 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
         self._update_surrogate()
 
         logger.info(
-            "[FULL EVAL] %s: score=%.2f%%, cost=%.4fh",
+            "[FULL EVAL %d/%d] %s: score=%.2f%%, eval_time=%.4fh",
+            evaluation_index, self.max_evaluations,
             recipe.recipe_name, eval_result.dev_score, step_cost,
         )
         return candidate
@@ -1070,6 +1079,7 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
         
         total_cost = 0.0
         max_traj_id = 0
+        completed_evaluations = 0
         for line in lines:
             if not line.strip(): continue
             record = json.loads(line)
@@ -1098,8 +1108,21 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
             step_cost = record.get("cost", 0.0)
             if "total_cost_hours" in record:
                 total_cost = max(total_cost, float(record.get("total_cost_hours", 0.0)))
+            elif "total_time_hours" in record:
+                total_cost = max(total_cost, float(record.get("total_time_hours", 0.0)))
             else:
                 total_cost += step_cost
+            evaluation_completed = bool(
+                record.get(
+                    "evaluation_completed",
+                    record.get("output_samples", 0) > 0,
+                )
+            )
+            if evaluation_completed:
+                completed_evaluations = max(
+                    completed_evaluations,
+                    int(record.get("evaluation_index", completed_evaluations + 1)),
+                )
             traj_id = record.get("trajectory_id", 0)
             max_traj_id = max(max_traj_id, traj_id)
             candidate = SearchCandidate(
@@ -1115,10 +1138,12 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
                 trajectory_id=traj_id,
                 proposal_index=record.get("proposal_index", 0),
                 origin_type=record.get("origin_type", "candidate"),
+                evaluation_index=record.get("evaluation_index", 0),
             )
             self.history.append(candidate)
         
         self.cumulative_cost = total_cost
+        self.completed_evaluations = completed_evaluations
         self._current_trajectory_id = max_traj_id
         if self.history:
             # Restore global best score and stagnation state
@@ -1138,8 +1163,9 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
                 self._stagnation_count = stag
 
             logger.info(
-                "Loaded %d past iterations (cost=%.2fh, trajectory=%d, stagnation=%d/%d). Best: %s",
-                len(self.history), self.cumulative_cost,
+                "Loaded %d past iterations (evals=%d/%d, tracked_time=%.2fh, trajectory=%d, stagnation=%d/%d). Best: %s",
+                len(self.history), self.completed_evaluations, self.max_evaluations,
+                self.cumulative_cost,
                 self._current_trajectory_id, self._stagnation_count,
                 self.stagnation_patience, self._get_best().recipe.recipe_name,
             )
@@ -1148,7 +1174,10 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
     def search(self) -> SearchCandidate:
         """Run the MCTS budgeted search loop."""
         self._search_start_time = time.time()
-        logger.info(f"Starting Surrogate MCTS Search (budget={self.budget_gpu_hours:.1f}h)")
+        logger.info(
+            "Starting Surrogate MCTS Search (max_evaluations=%d)",
+            self.max_evaluations,
+        )
         
         # --- 1. Cold Start: staged warmup with batch pipeline execution ---
         self._run_warmup_phase()
@@ -1167,15 +1196,18 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
         
         unexplored_pool = self._unexplored_pool
         
-        while self.cumulative_cost < self.budget_gpu_hours:
+        while self._has_evaluation_budget_remaining():
             # Each iteration should execute only the freshly expanded batch.
             unexplored_pool.clear()
 
             verified_count = sum(1 for c in self.history if getattr(c, "eval_mode", "full") == "full")
             current_iter = self._iteration + 1
             logger.info(
-                "--- Iteration %d (cost=%.2f/%.2fh, GP points=%d) ---",
-                current_iter, self.cumulative_cost, self.budget_gpu_hours,
+                "--- Iteration %d (evals=%d/%d, tracked_time=%.2fh, GP points=%d) ---",
+                current_iter,
+                self.completed_evaluations,
+                self.max_evaluations,
+                self.cumulative_cost,
                 verified_count,
             )
             
@@ -1310,8 +1342,8 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
             # 2. Pipeline pre-execution for all ActionLLM proposals
             candidates_to_run = list(unexplored_pool)
             pipeline_results = self._execute_candidates_pipelines(candidates_to_run)
-            if self.cumulative_cost >= self.budget_gpu_hours:
-                logger.warning("Budget exhausted after pipeline execution; stopping before further evaluation.")
+            if not self._has_evaluation_budget_remaining():
+                logger.warning("Evaluation budget exhausted after pipeline execution; stopping before further evaluation.")
                 self._save_search_tree()
                 break
 
@@ -1362,8 +1394,8 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
                     experiment_insights=experiment_insights,
                     best_score=best.score,
                     best_name=best.recipe.recipe_name,
-                    budget_remaining=self.budget_gpu_hours - self.cumulative_cost,
-                    budget_total=self.budget_gpu_hours,
+                    budget_remaining=self._evaluation_budget_remaining(),
+                    budget_total=self.max_evaluations,
                     n_iterations=len(self.history),
                     pool_size=self.pool_size,
                     selection_context=self._build_selection_context(parent),
@@ -1388,8 +1420,8 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
             selected_mu = float(mu[best_idx])
             selected_sigma = float(sigma[best_idx])
 
-            if self.cumulative_cost >= self.budget_gpu_hours:
-                logger.warning("Budget exhausted before candidate evaluation. Ending search.")
+            if not self._has_evaluation_budget_remaining():
+                logger.warning("Evaluation budget exhausted before candidate evaluation. Ending search.")
                 self._save_search_tree()
                 break
 
@@ -1443,14 +1475,14 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
 
             # Check for trajectory restart
             if self._stagnation_count >= self.stagnation_patience:
-                if self.cumulative_cost < self.budget_gpu_hours:
+                if self._has_evaluation_budget_remaining():
                     self._start_new_trajectory()
                     # Evaluate restart seed immediately
                     restart_seed = self._generate_restart_seed()
                     logger.info("Restart seed: '%s'", restart_seed.recipe_name)
                     restart_results = self._execute_candidates_pipelines([restart_seed])
                     restart_pr = restart_results[0]
-                    if restart_pr["valid"] and self.cumulative_cost < self.budget_gpu_hours:
+                    if restart_pr["valid"] and self._has_evaluation_budget_remaining():
                         restart_candidate = self._evaluate_candidate(
                             recipe=restart_seed,
                             pipeline_result=restart_pr,
@@ -1466,10 +1498,14 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
                             logger.info("★ Restart seed is new best! score=%.2f", best.score)
                         self._save_search_tree()
                     else:
-                        logger.warning("Restart seed '%s' invalid or budget exhausted.", restart_seed.recipe_name)
+                        logger.warning("Restart seed '%s' invalid or evaluation budget exhausted.", restart_seed.recipe_name)
                 
         logger.info(
-            "Search Exhausted Budget. Best: %s (score=%.2f, cost=%.2fh)",
-            best.recipe.recipe_name, best.score, self.cumulative_cost
+            "Search exhausted evaluation budget. Best: %s (score=%.2f, evals=%d/%d, tracked_time=%.2fh)",
+            best.recipe.recipe_name,
+            best.score,
+            self.completed_evaluations,
+            self.max_evaluations,
+            self.cumulative_cost,
         )
         return best

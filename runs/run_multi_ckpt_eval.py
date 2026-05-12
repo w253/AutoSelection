@@ -22,14 +22,23 @@ TASK_FILE_MAP: Dict[str, str] = {
     "gsm8k": "gsm8k_test.jsonl",
     "bbh": "bbh_test.jsonl",
     "mmlu": "mmlu_test.jsonl",
-    "graph": "GraphWiz_test.jsonl",
-    "graph_yesno": "NLgraph_test.jsonl",
+    "graphwiz": "GraphWiz_test.jsonl",
+    "nlgraph_yesno": "NLgraph_test.jsonl",
+}
+
+TASK_ALIASES: Dict[str, str] = {
+    "graph": "graphwiz",
+    "graph_yesno": "nlgraph_yesno",
 }
 
 
 def parse_tasks(raw: str) -> List[str]:
     """Parse a comma-separated task list."""
-    tasks = [task.strip() for task in raw.split(",") if task.strip()]
+    tasks = [
+        TASK_ALIASES.get(task.strip(), task.strip())
+        for task in raw.split(",")
+        if task.strip()
+    ]
     if not tasks:
         raise argparse.ArgumentTypeError("At least one task must be specified.")
     unknown = [task for task in tasks if task not in TASK_FILE_MAP]
@@ -120,8 +129,12 @@ def main() -> None:
     parser.add_argument(
         "--tasks",
         type=parse_tasks,
-        default=parse_tasks("gpqa,gsm8k,bbh,mmlu,graph,graph_yesno"),
-        help="Comma-separated task names. Supported: gpqa,gsm8k,bbh,mmlu,mbpp,math500,graph,graph_yesno",
+        default=parse_tasks("gpqa,gsm8k,bbh,mmlu,graphwiz,nlgraph_yesno"),
+        help=(
+            "Comma-separated task names. Supported: gpqa,gsm8k,bbh,mmlu,"
+            "graphwiz,nlgraph_yesno. Legacy aliases graph and graph_yesno "
+            "are accepted."
+        ),
     )
     parser.add_argument(
         "--output_dir",

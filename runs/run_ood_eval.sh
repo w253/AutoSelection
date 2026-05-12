@@ -17,8 +17,8 @@ export PYTHONPATH="${REPO_ROOT}/src:${REPO_ROOT}:${PYTHONPATH:-}"
 
 DATA_DIR="${DATA_DIR:-${REPO_ROOT}/data}"
 EVAL_DIR="${EVAL_DIR:-${DATA_DIR}/eval}"
-GRAPH_DATA="${GRAPH_DATA:-${EVAL_DIR}/GraphWiz_test.jsonl}"
-GRAPH_YESNO_DATA="${GRAPH_YESNO_DATA:-${EVAL_DIR}/NLgraph_test.jsonl}"
+GRAPHWIZ_DATA="${GRAPHWIZ_DATA:-${GRAPH_DATA:-${EVAL_DIR}/GraphWiz_test.jsonl}}"
+NLGRAPH_YESNO_DATA="${NLGRAPH_YESNO_DATA:-${GRAPH_YESNO_DATA:-${EVAL_DIR}/NLgraph_test.jsonl}}"
 
 MODEL_PATH="${MODEL_PATH:-}"
 LORA_PATH="${LORA_PATH:-}"
@@ -37,19 +37,19 @@ if [ -z "${MODEL_PATH}" ]; then
     exit 2
 fi
 
-if [ ! -f "${GRAPH_DATA}" ]; then
-    echo "ERROR: GraphWiz file not found: ${GRAPH_DATA}" >&2
+if [ ! -f "${GRAPHWIZ_DATA}" ]; then
+    echo "ERROR: GraphWiz file not found: ${GRAPHWIZ_DATA}" >&2
     exit 2
 fi
 
-if [ ! -f "${GRAPH_YESNO_DATA}" ]; then
-    echo "ERROR: NLgraph yes/no file not found: ${GRAPH_YESNO_DATA}" >&2
+if [ ! -f "${NLGRAPH_YESNO_DATA}" ]; then
+    echo "ERROR: NLgraph yes/no file not found: ${NLGRAPH_YESNO_DATA}" >&2
     exit 2
 fi
 
 mkdir -p "${OUTPUT_DIR}"
 
-EVAL_TASKS="graph:${GRAPH_DATA},graph_yesno:${GRAPH_YESNO_DATA}"
+EVAL_TASKS="graphwiz:${GRAPHWIZ_DATA},nlgraph_yesno:${NLGRAPH_YESNO_DATA}"
 LORA_ARGS=()
 if [ -n "${LORA_PATH}" ]; then
     LORA_ARGS=(--lora_path "${LORA_PATH}")

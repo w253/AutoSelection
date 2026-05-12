@@ -1,7 +1,7 @@
 """Unified Evaluation Pipeline with vLLM Backend.
 
 Supports GPQA, GSM8K, BBH, MMLU, MBPP, Math-500, GraphWiz
-(excluding topology), and an additional graph yes/no benchmark
+(excluding topology), and NLgraph yes/no evaluation
 with a single vLLM model initialization. Load the model once, evaluate
 each benchmark sequentially, output per-task scores and an aggregated metric.
 
@@ -1193,7 +1193,7 @@ def score_graph(data: List[Dict[str, Any]], outputs: list) -> Tuple[List[Dict[st
         for task, count in task_totals.items()
     }
     metrics = {
-        "benchmark": "graph",
+        "benchmark": "graphwiz",
         "total_samples": total,
         "correct": correct,
         "accuracy": accuracy,
@@ -1296,7 +1296,7 @@ def score_graph_yesno(
     total = len(data)
     accuracy = correct / total if total > 0 else 0.0
     metrics = {
-        "benchmark": "graph_yesno",
+        "benchmark": "nlgraph_yesno",
         "total_samples": total,
         "correct": correct,
         "accuracy": accuracy,
@@ -1349,6 +1349,19 @@ BENCHMARK_REGISTRY = {
         "build_messages": build_math500_messages,
         "score": score_math500,
     },
+    "graphwiz": {
+        "load": load_graph_data,
+        "prepare_item": prepare_graph_item,
+        "build_messages": build_graph_messages,
+        "score": score_graph,
+    },
+    "nlgraph_yesno": {
+        "load": load_graph_yesno_data,
+        "prepare_item": prepare_graph_yesno_item,
+        "build_messages": build_graph_yesno_messages,
+        "score": score_graph_yesno,
+    },
+    # Backward-compatible aliases for older scripts/logs.
     "graph": {
         "load": load_graph_data,
         "prepare_item": prepare_graph_item,
@@ -1361,6 +1374,11 @@ BENCHMARK_REGISTRY = {
         "build_messages": build_graph_yesno_messages,
         "score": score_graph_yesno,
     },
+}
+
+BENCHMARK_ALIASES = {
+    "graph": "graphwiz",
+    "graph_yesno": "nlgraph_yesno",
 }
 
 
@@ -1381,9 +1399,10 @@ def _load_eval_data(
     if merged_data_path and os.path.isfile(merged_data_path):
         from recipe_sandbox.evaluation.merge_eval_data import load_merged_eval_data
         raw_grouped = load_merged_eval_data(merged_data_path)
-        for task_name, raw_items in raw_grouped.items():
+        for raw_task_name, raw_items in raw_grouped.items():
+            task_name = BENCHMARK_ALIASES.get(raw_task_name, raw_task_name)
             if task_name not in BENCHMARK_REGISTRY:
-                print(f"WARNING: Unknown data_source '{task_name}' in merged file, skipping.")
+                print(f"WARNING: Unknown data_source '{raw_task_name}' in merged file, skipping.")
                 continue
             prepare = BENCHMARK_REGISTRY[task_name]["prepare_item"]
             per_task_data[task_name] = [prepare(item) for item in raw_items]
@@ -2174,7 +2193,7 @@ def parse_eval_tasks(raw: str) -> Dict[str, str]:
             )
         # Split on first colon only so paths like /data/... work
         name, path = part.split(":", 1)
-        name = name.strip()
+        name = BENCHMARK_ALIASES.get(name.strip(), name.strip())
         path = path.strip()
         if not name or not path:
             raise argparse.ArgumentTypeError(

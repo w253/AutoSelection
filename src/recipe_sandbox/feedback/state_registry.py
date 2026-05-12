@@ -134,7 +134,7 @@ _register(StateKeyMeta(
 
 _register(StateKeyMeta(
     key="cumulative_cost_ratio",
-    display_name="Budget Used",
+    display_name="Eval Budget Used",
     description="Fraction of total evaluation budget consumed so far.",
     range_hint="[0, 1]",
     direction="lower_better",

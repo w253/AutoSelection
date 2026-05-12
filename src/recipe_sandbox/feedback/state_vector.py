@@ -29,7 +29,7 @@ class DataStateVector:
     mean_varentropy: float
     mean_ifd: float
     format_integrity: float
-    cumulative_cost_ratio: float = 0.0  # used_budget / total_budget
+    cumulative_cost_ratio: float = 0.0  # completed_evaluations / max_evaluations
     score_per_task: Dict[str, float] = field(default_factory=dict)  # per-benchmark MONA mean
 
     def to_dict(self) -> Dict[str, Any]:

@@ -7,7 +7,7 @@ Phase 3 autonomous recipe search:
    - Observe Best Recipe + Diagnoses
    - Action LLM proposes Next Candidate
    - Execute & Evaluate Pipeline (via pluggable Evaluator)
-   - Update Pareto front / Best utility until Budget is exhausted
+   - Update Pareto front / Best utility until evaluation budget is exhausted
 3. Write JSON Lines search log
 """
 
@@ -54,6 +54,7 @@ class SearchCandidate:
     trajectory_id: int = 0
     proposal_index: int = 0
     origin_type: str = "candidate"
+    evaluation_index: int = 0
 
     def to_log_dict(self) -> Dict[str, Any]:
         return {
@@ -78,6 +79,8 @@ class SearchCandidate:
             "trajectory_id": self.trajectory_id,
             "proposal_index": self.proposal_index,
             "origin_type": self.origin_type,
+            "evaluation_index": self.evaluation_index,
+            "evaluation_completed": self.eval_result is not None,
         }
 
 
@@ -95,7 +98,8 @@ class BudgetedRecipeSearch:
         action_generator: ActionLLMGenerator,
         evaluator: BaseEvaluator,
         *,
-        budget_gpu_hours: float = 10.0,
+        budget_gpu_hours: Optional[float] = None,
+        max_evaluations: int = 15,
         utility_config: Optional[UtilityConfig] = None,
         search_log_path: Optional[str] = None,
     ):
@@ -104,7 +108,9 @@ class BudgetedRecipeSearch:
         self.action_generator = action_generator
         self.evaluator = evaluator
 
-        self.budget_gpu_hours = budget_gpu_hours
+        self.budget_gpu_hours = float(budget_gpu_hours or 0.0)
+        self.max_evaluations = int(max(1, max_evaluations))
+        self.completed_evaluations = 0
         self.utility_config = utility_config or UtilityConfig()
 
         self.history: List[SearchCandidate] = []
@@ -128,10 +134,11 @@ class BudgetedRecipeSearch:
         """Run pipeline → evaluate → log."""
         self._iteration += 1
         logger.info(
-            "\n[%d | %.2f/%.2fh] Evaluating: %s",
+            "\n[%d | evals=%d/%d | tracked_time=%.2fh] Evaluating: %s",
             self._iteration,
+            self.completed_evaluations,
+            self.max_evaluations,
             self.cumulative_cost,
-            self.budget_gpu_hours,
             recipe.recipe_name,
         )
 
@@ -169,6 +176,7 @@ class BudgetedRecipeSearch:
             recipe_name=recipe.recipe_name,
             state_vector=final_state,
         )
+        evaluation_index = self._record_completed_evaluation()
 
         # 3. Cost-aware utility
         step_cost = eval_result.train_cost_gpu_hours + eval_result.eval_cost_gpu_hours
@@ -190,6 +198,7 @@ class BudgetedRecipeSearch:
             eval_result=eval_result,
             iteration=self._iteration,
             output_samples=result.output_samples,
+            evaluation_index=evaluation_index,
             cost_breakdown={
                 "pipeline_hours": pipeline_cost,
                 "evaluation_hours": step_cost,
@@ -205,7 +214,10 @@ class BudgetedRecipeSearch:
 
     def search(self) -> SearchCandidate:
         """Run the full budgeted search."""
-        logger.info("Starting Budgeted Search (budget=%.1fh)...", self.budget_gpu_hours)
+        logger.info(
+            "Starting Budgeted Search (max_evaluations=%d)...",
+            self.max_evaluations,
+        )
 
         # --- 1. Cold Start: Seed Nodes ---
         seed_baseline = RecipeConfig(
@@ -230,8 +242,10 @@ class BudgetedRecipeSearch:
             ],
         )
 
-        self._evaluate_candidate(seed_baseline)
-        self._evaluate_candidate(seed_clean_dedup)
+        if self._has_evaluation_budget_remaining():
+            self._evaluate_candidate(seed_baseline)
+        if self._has_evaluation_budget_remaining():
+            self._evaluate_candidate(seed_clean_dedup)
 
         best = self._get_best()
         logger.info(
@@ -242,12 +256,13 @@ class BudgetedRecipeSearch:
         )
 
         # --- 2. LLM-driven search loop ---
-        while self.cumulative_cost < self.budget_gpu_hours:
+        while self._has_evaluation_budget_remaining():
             logger.info(
-                "--- Iteration %d (cost=%.2f/%.2fh) ---",
+                "--- Iteration %d (evals=%d/%d, tracked_time=%.2fh) ---",
                 self._iteration + 1,
+                self.completed_evaluations,
+                self.max_evaluations,
                 self.cumulative_cost,
-                self.budget_gpu_hours,
             )
 
             try:
@@ -279,10 +294,12 @@ class BudgetedRecipeSearch:
                 )
 
         logger.info(
-            "Search finished. Best recipe: %s (utility=%.2f, score=%.2f, total_cost=%.2fh)",
+            "Search finished. Best recipe: %s (utility=%.2f, score=%.2f, evals=%d/%d, tracked_time=%.2fh)",
             best.recipe.recipe_name,
             best.utility,
             best.score,
+            self.completed_evaluations,
+            self.max_evaluations,
             self.cumulative_cost,
         )
         return best
@@ -310,6 +327,9 @@ class BudgetedRecipeSearch:
             return
         entry = candidate.to_log_dict()
         entry["total_cost_hours"] = round(self.cumulative_cost, 4)
+        entry["total_time_hours"] = round(self.cumulative_cost, 4)
+        entry["completed_evaluations"] = self.completed_evaluations
+        entry["max_evaluations"] = self.max_evaluations
         entry["total_cost_breakdown"] = self._current_cost_breakdown()
         with open(self._log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -332,6 +352,16 @@ class BudgetedRecipeSearch:
         self._ensure_cost_trackers()
         self.cumulative_cost += hours
         self._cost_breakdown_totals[category] = self._cost_breakdown_totals.get(category, 0.0) + hours
+
+    def _record_completed_evaluation(self) -> int:
+        self.completed_evaluations += 1
+        return self.completed_evaluations
+
+    def _has_evaluation_budget_remaining(self) -> bool:
+        return self.completed_evaluations < self.max_evaluations
+
+    def _evaluation_budget_remaining(self) -> int:
+        return max(0, self.max_evaluations - self.completed_evaluations)
 
     def _current_cost_breakdown(self) -> Dict[str, float]:
         self._ensure_cost_trackers()

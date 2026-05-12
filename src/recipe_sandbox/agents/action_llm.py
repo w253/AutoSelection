@@ -225,7 +225,7 @@ Current Recipe:
 {self._render_current_recipe(current_recipe)}
 
 Current Metric Score: {score:.4f}
-Current Search Compute Cost: {cost:.2f} GPU-hours
+Tracked Search Time: {cost:.2f} hours
 
 === INSTRUCTIONS ===
 1. Analyze the current recipe and its performance.
@@ -358,8 +358,8 @@ The search is BIDIRECTIONAL — you can BOTH tighten AND relax filters:
 """
             if pool_source_count is not None and pool_source_count <= 1:
                 pool_section += (
-                    "\nSingle-source pool detected: do NOT use varentropy_mix here. "
-                    "Use truncate_samples when you need a hard sample-count cap.\n"
+                    "\nSingle-source pool detected: use truncate_samples when you need "
+                    "a hard sample-count cap.\n"
                 )
 
         # State vector section with metric explanations
@@ -418,7 +418,7 @@ Current Recipe:
 {self._render_current_recipe(current_recipe)}
 
 Current Metric Score: {score:.4f}
-Current Search Compute Cost: {cost:.2f} GPU-hours
+Tracked Search Time: {cost:.2f} hours
 {state_section}{benchmark_section}
 {pool_section}{history_section}{insights_section}{union_section}=== INSTRUCTIONS ===
 1. Analyze the current recipe, state vector, and search history.
