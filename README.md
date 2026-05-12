@@ -31,8 +31,7 @@ across three base models, outperforming full-data training, random recipe
 search, random top-k, and single-operator selectors. Additional
 out-of-distribution graph-reasoning results, search-stability analyses,
 structural ablations, and 1.5B-to-7B transfer checks further show that recipe
-structure matters beyond individual selection operators. Code is available at
-https://anonymous.4open.science/r/AutoSel-0588.
+structure matters beyond individual selection operators.
 
 ## Method Overview
 
