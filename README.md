@@ -1,33 +1,95 @@
-# Recipe Sandbox
+# From Instance Selection to Fixed-Pool Data Recipe Search for Supervised Fine-Tuning
 
-This directory contains the final AutoSelection MCTS pipeline and evaluation
-entrypoints.
+AutoSelection is a budgeted solver for fixed-pool data recipe search. Instead
+of treating SFT data selection as a one-shot instance ranking problem, it
+searches over executable data-curation recipes that filter, mix, deduplicate,
+and recombine samples from the same fixed raw instruction pool.
 
 <p align="center">
   <a href="resources/main.pdf">
-    <img src="resources/main.png" alt="AutoSelection MCTS pipeline overview" width="860">
+    <img src="resources/main.png" alt="AutoSelection method overview" width="860">
   </a>
 </p>
 
-## 1. Directory Layout
+## Abstract
+
+Supervised fine-tuning (SFT) data selection is commonly formulated as instance
+ranking: score each example and retain a top-k subset. However, effective SFT
+training subsets are often produced through ordered curation recipes, where
+filtering, mixing, and deduplication operators jointly shape the final data
+distribution. We formulate this problem as fixed-pool data recipe search: given
+a raw instruction pool and a library of grounded operators, the goal is to
+discover an executable recipe that constructs a high-quality selected subset
+under a limited budget of full SFT evaluations, without generating, rewriting,
+or augmenting training samples. We introduce AutoSelection, a two-layer solver
+that decouples fixed-pool materialization based on cached task-, data-, and
+model-side signals from expensive full evaluation, using warmup probes,
+realized subset states, local recipe edits, Gaussian-process-assisted ranking,
+and stagnation-triggered reseeding. Experiments on a 90K instruction pool show
+that AutoSelection achieves the strongest in-distribution reasoning average
+across three base models, outperforming full-data training, random recipe
+search, random top-k, and single-operator selectors. Additional
+out-of-distribution graph-reasoning results, search-stability analyses,
+structural ablations, and 1.5B-to-7B transfer checks further show that recipe
+structure matters beyond individual selection operators. Code is available at
+https://anonymous.4open.science/r/AutoSel-0588.
+
+## Method Overview
+
+AutoSelection has two coupled layers:
+
+- Fixed-pool materialization: canonicalizes the raw instruction pool once,
+  preserves stable sample identifiers, and precomputes reusable task-, data-,
+  and model-side signals. Operators always return subsets of the same fixed
+  pool; they do not generate, rewrite, or augment examples.
+- Search controller: allocates a limited evaluation budget through warmup
+  probes, history summarization, local recipe edits, candidate materialization,
+  GP-assisted ranking, and stagnation-triggered reseeding.
+
+A recipe is a bounded ordered program:
 
 ```text
-recipe_sandbox/
-  data/
-    train3/merged_data.jsonl              # default training pool
-    target_vector_samples/*.jsonl         # target-vector data for MONA/SAE scoring
-    eval/*.jsonl                          # in-domain and OOD evaluation sets
-  examples/recipes/operator_catalog.yaml  # operator search space
-  runs/
-    run_mcts_e2e.sh                       # main MCTS search entrypoint
-    run_mcts_e2e_engine.py                # Python engine used by the shell entrypoint
-    run_ood_eval.sh                       # OOD evaluation entrypoint
-    run_multi_ckpt_eval.py                # multi-checkpoint evaluation helper
-  src/recipe_sandbox/                     # package source code
+[(operator_1, params_1), ..., (operator_L, params_L)]
 ```
 
+Executing a recipe materializes a selected subset. An evaluation then fine-tunes
+the base model on that subset and measures downstream benchmark performance.
+`MAX_EVALUATIONS` is therefore the primary search budget.
 
-## 2. Environment Setup
+For each materialized candidate, AutoSelection computes a realized subset state
+vector before spending an evaluation. The state vector summarizes retained data
+scale, token ratio, task relevance, per-benchmark MONA similarity,
+distribution drift, IFD, and varentropy. This gives the ranker information
+about what the recipe actually produced, not only what operators appear in the
+recipe string.
+
+## Repository Layout
+
+```text
+data/
+  train3/merged_data.jsonl              # default training pool
+  target_vector_samples/*.jsonl         # target-vector data for MONA/SAE scoring
+  eval/*.jsonl                          # in-domain and OOD evaluation sets
+examples/
+  recipes/operator_catalog.yaml         # operator prompt/search catalog
+  extensions/                           # minimal custom-operator example
+resources/
+  main.pdf                              # method figure source
+  main.png                              # README preview image
+runs/
+  run_mcts_e2e.sh                       # main AutoSelection search entrypoint
+  run_mcts_e2e_engine.py                # Python engine used by the shell entrypoint
+  run_ood_eval.sh                       # OOD evaluation entrypoint
+  run_multi_ckpt_eval.py                # multi-checkpoint evaluation helper
+src/recipe_sandbox/                     # package source code
+tests/                                  # smoke tests
+```
+
+The main search script names are kept for backward compatibility with earlier
+experiments; the active method is AutoSelection's warmup, local-edit, ranking,
+and reseeding loop.
+
+## Environment Setup
 
 Use Python 3.10 or newer. The two core runtime dependencies are:
 
@@ -38,8 +100,6 @@ vLLM          0.10.0
 
 Install the accelerator-specific `torch` build that matches your CUDA/NPU
 cluster, then install the supporting Python packages used by the pipeline.
-
-Example:
 
 ```bash
 conda create -n autosel python=3.10 -y
@@ -55,30 +115,31 @@ For Ascend/NPU environments, also install the matching `torch-npu` package and
 set `ASCEND_RT_VISIBLE_DEVICES` as needed. For CUDA environments, set
 `CUDA_VISIBLE_DEVICES` as usual.
 
-Make sure these commands are available before running the full pipeline:
+Check the basic runtime:
 
 ```bash
 python -c "import sklearn, torch, transformers, vllm; print(vllm.__version__)"
 llamafactory-cli --help
 ```
 
-## 3. Model and LLM Configuration
+## Model and Agent Configuration
 
 By default the scripts expect:
 
 ```text
-recipe_sandbox/models/base_model
-recipe_sandbox/models/sae/layers.27
+models/base_model
+models/sae/layers.27
 ```
 
-You can override them with environment variables:
+Override them with environment variables:
 
 ```bash
 export BASE_MODEL=/path/to/base_model
 export SAE_PATH=/path/to/sae/layers.27
 ```
 
-The MCTS agents use an OpenAI-compatible LLM endpoint:
+AutoSelection's proposer, summarizer, and ranker use an OpenAI-compatible LLM
+endpoint:
 
 ```bash
 export OPENAI_BASE_URL=https://your-openai-compatible-endpoint/v1
@@ -87,12 +148,12 @@ export LLM_MODEL=your_model_name
 export THINKING_MODEL=${LLM_MODEL}
 ```
 
-`THINKING_MODEL` is used by Action, Feedback, and Selection LLM agents. If it is
-not set, it defaults to `LLM_MODEL`.
+`THINKING_MODEL` is used by the Action, Feedback, and Selection agents. If it
+is not set, it defaults to `LLM_MODEL`.
 
-## 4. Data Setup
+## Data Setup
 
-Default paths are relative to `recipe_sandbox/`:
+Default paths are relative to the repository root:
 
 ```text
 data/train3/merged_data.jsonl
@@ -108,27 +169,28 @@ data/eval/GraphWiz_test.jsonl
 data/eval/NLgraph_test.jsonl
 ```
 
-Training data should be JSONL in canonical chat format. Each line should contain
-at least a `messages` list with `{role, content}` objects. Optional fields such
-as `sample_id`, `source_name`, `target`, `metadata`, and `tags` are supported.
-See `src/recipe_sandbox/schema/canonical_schema.yaml` for the full schema.
+Training data should be JSONL in canonical chat format. Each line should
+contain at least a `messages` list with `{role, content}` objects. Optional
+fields such as `sample_id`, `source_name`, `target`, `metadata`, and `tags` are
+supported. See `src/recipe_sandbox/schema/canonical_schema.yaml` for the full
+schema.
 
-To use another training pool:
+Use another training pool:
 
 ```bash
 RAW_TRAIN_DATA=/path/to/train.jsonl bash runs/run_mcts_e2e.sh
 ```
 
-To use another data root:
+Use another data root:
 
 ```bash
 DATA_DIR=/path/to/data bash runs/run_mcts_e2e.sh
 ```
 
-## 5. Run Main MCTS Search
+## Run AutoSelection
 
 ```bash
-cd /path/to/AutoSelection/recipe_sandbox
+cd /path/to/AutoSelection
 
 export BASE_MODEL=/path/to/base_model
 export SAE_PATH=/path/to/sae/layers.27
@@ -155,7 +217,7 @@ bash runs/run_mcts_e2e.sh
 Runtime is still recorded for diagnostics, but it is not used as the stopping
 budget.
 
-If using a custom DeepSpeed config:
+Use a custom DeepSpeed config:
 
 ```bash
 DEEPSPEED_CONFIG=/path/to/ds_zero2.json bash runs/run_mcts_e2e.sh
@@ -187,7 +249,7 @@ canonical/
 sae_caches/
 ```
 
-## 6. Run OOD Evaluation
+## Evaluation Utilities
 
 OOD evaluation uses:
 
@@ -199,7 +261,6 @@ nlgraph_yesno  -> data/eval/NLgraph_test.jsonl
 Evaluate a full model:
 
 ```bash
-cd /path/to/AutoSelection/recipe_sandbox
 MODEL_PATH=/path/to/full_model bash runs/run_ood_eval.sh
 ```
 
@@ -211,29 +272,7 @@ LORA_PATH=/path/to/adapter \
 bash runs/run_ood_eval.sh
 ```
 
-Common OOD overrides:
-
-```bash
-BATCH_SIZE=64 \
-MAX_TOKENS=4096 \
-TENSOR_PARALLEL_SIZE=1 \
-GPU_MEMORY_UTILIZATION=0.9 \
-OUTPUT_DIR=runs/ood_eval_custom \
-MODEL_PATH=/path/to/model \
-bash runs/run_ood_eval.sh
-```
-
-## 7. Evaluate Multiple Checkpoints
-
-Evaluate full checkpoints:
-
-```bash
-python runs/run_multi_ckpt_eval.py \
-  --checkpoints /path/to/ckpt1 /path/to/ckpt2 \
-  --output_dir runs/multi_ckpt_eval
-```
-
-Evaluate LoRA adapters against one base model:
+Evaluate multiple checkpoints:
 
 ```bash
 python runs/run_multi_ckpt_eval.py \
@@ -254,13 +293,11 @@ python runs/run_multi_ckpt_eval.py \
   --output_dir runs/multi_ckpt_eval
 ```
 
-## 8. Extending Operators and Hooks
+## Extending Operators and Hooks
 
 New operators should subclass `BaseOperator` or one of its typed bases in
 `src/recipe_sandbox/operators/base.py`, then register through a small extension
 module on `PYTHONPATH`.
-
-Example extension module:
 
 ```python
 from recipe_sandbox.operators.base import FilterOperator
@@ -286,12 +323,13 @@ OPERATOR_CATALOG=/path/to/operator_catalog.yaml \
 bash runs/run_mcts_e2e.sh
 ```
 
-For MCTS/LLM search, the operator must also have prompt metadata. You can either
-add it to the catalog passed via `OPERATOR_CATALOG`, or expose an
-`OPERATOR_CATALOG_PATCH` / `get_operator_catalog_patch()` from the extension
-module. At runtime the patch is merged into `operator_catalog.extended.yaml` in
-the run directory and passed to the proposer. The registry controls execution;
-the catalog controls how the proposer talks about the operator.
+For AutoSelection's LLM-guided search, the operator must also have prompt
+metadata. You can either add it to the catalog passed via `OPERATOR_CATALOG`, or
+expose an `OPERATOR_CATALOG_PATCH` / `get_operator_catalog_patch()` from the
+extension module. At runtime the patch is merged into
+`operator_catalog.extended.yaml` in the run directory and passed to the
+proposer. The registry controls execution; the catalog controls how the
+proposer talks about the operator.
 
 If a new operator needs cold-start features, expose:
 
@@ -303,8 +341,8 @@ def precompute_features(*, samples, context):
 ```
 
 This runs after built-in scoring/SAE ingest and before warmup/search execution,
-so operators can consume the cached metadata during `transform()`. Keep expensive
-metric computation in `precompute_features()` and keep `transform()`
+so operators can consume the cached metadata during `transform()`. Keep
+expensive metric computation in `precompute_features()` and keep `transform()`
 deterministic.
 
 Extension operators are appended to the search vocabulary automatically. The
@@ -324,10 +362,10 @@ after_step(recipe, step, step_index, operator, bus_before, bus_after, step_trace
 on_step_error(recipe, step, step_index, bus, error)
 ```
 
-Use hooks for logging, validation, telemetry, or experiment bookkeeping. Put data
-transformations in operators so traces and manifests stay reproducible.
+Use hooks for logging, validation, telemetry, or experiment bookkeeping. Put
+data transformations in operators so traces and manifests stay reproducible.
 
-## 9. Quick Checks
+## Quick Checks
 
 ```bash
 bash -n runs/run_mcts_e2e.sh
