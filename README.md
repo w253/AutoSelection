@@ -207,10 +207,17 @@ data/eval/GraphWiz_test.jsonl
 data/eval/NLgraph_test.jsonl
 ```
 
-The eval and target-vector files are included in the repository. The large
-training pool at `data/train3/merged_data.jsonl` is intentionally not tracked;
-place the downloaded file at that path, or set `RAW_TRAIN_DATA` to another
-local JSONL file before running AutoSelection.
+The eval and target-vector files are included in the repository. The 90K
+training pool is hosted separately on HuggingFace:
+[k253/AutoSelection-90k](https://huggingface.co/datasets/k253/AutoSelection-90k).
+Download it to the default path `data/train3/merged_data.jsonl`, or set
+`RAW_TRAIN_DATA` to another local JSONL file before running AutoSelection.
+
+```bash
+huggingface-cli download k253/AutoSelection-90k merged_data.jsonl \
+  --repo-type dataset \
+  --local-dir data/train3
+```
 
 Training data should be JSONL in canonical chat format. Each line should
 contain at least a `messages` list with `{role, content}` objects. Optional
