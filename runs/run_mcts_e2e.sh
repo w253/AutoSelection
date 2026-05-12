@@ -77,7 +77,6 @@ echo "  Target Vector Source: ${TARGET_VECTOR_DATA}"
 echo "  Agent: ${LLM_MODEL} @ ${OPENAI_BASE_URL}"
 echo "  Thinking Model: ${THINKING_MODEL}"
 echo "  Budget: ${BUDGET}h | LHS Seeds: ${N_LHS_SEEDS}"
-echo "  Search: llm_only | BatchPipeline: true | StateContext: true | FeedbackLLM: true | Restart: llm | Stagnation: ${STAGNATION_PATIENCE}"
 echo "  Eval TP: ${TENSOR_PARALLEL_SIZE}"
 if [ -n "${TASK_CONFIG}" ]; then
     echo "  Ingestion Source: ${TASK_CONFIG} (via PipelineOrchestrator)"
