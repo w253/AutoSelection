@@ -208,6 +208,11 @@ data/eval/GraphWiz_test.jsonl
 data/eval/NLgraph_test.jsonl
 ```
 
+The eval and target-vector files are included in the repository. The large
+training pool at `data/train3/merged_data.jsonl` is intentionally not tracked;
+place the downloaded file at that path, or set `RAW_TRAIN_DATA` to another
+local JSONL file before running AutoSelection.
+
 Training data should be JSONL in canonical chat format. Each line should
 contain at least a `messages` list with `{role, content}` objects. Optional
 fields such as `sample_id`, `source_name`, `target`, `metadata`, and `tags` are

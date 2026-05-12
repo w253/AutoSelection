@@ -2,10 +2,16 @@
 __pycache__/
 *.py[cod]
 
-# Local data/model artifacts. Keep README paths as expected local inputs,
-# but do not commit bulky datasets or downloaded model weights.
-data/
+# Local model artifacts. Keep README paths as expected local inputs,
+# but do not commit downloaded model weights.
 models/
+
+# Large training pool. Keep the default path documented, but distribute the
+# file separately when releasing data.
+data/train3/merged_data.jsonl
+
+# Local paper drafting notes.
+resources/method.txt
 
 # Runtime outputs from search/evaluation scripts.
 runs/e2e_mcts_*/
