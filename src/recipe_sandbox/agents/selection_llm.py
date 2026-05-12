@@ -7,7 +7,7 @@ uses chain-of-thought reasoning to rank the most promising choices.
 
 Design rationale:
   - GP+UCB provides a solid quantitative prior but is limited by its encoding
-    (11-D recipe features). It cannot capture operator synergies, feedback
+    recipe-level features. It cannot capture operator synergies, feedback
     patterns, or strategic considerations.
   - The reasoning model adds qualitative judgement: operator compatibility,
     risk mitigation, exploration/exploitation balance, and alignment with
@@ -352,7 +352,7 @@ Real evaluation is expensive (requires full model training + benchmark evaluatio
 {history_section}
 {insights_section}
 ## CANDIDATES (current ActionLLM proposal set with GP scores)
-NOTE: The GP surrogate predicts expected utility from an 11-D recipe encoding (operator presence + parameters).
+NOTE: The GP surrogate predicts expected utility from a recipe encoding (operator presence + parameters).
 The candidates below are the current ActionLLM proposals; GP scores are advisory signals, not a visibility filter.
 Each candidate's pipeline has been pre-executed to obtain data state metrics (shown below for reference).
 UCB = μ + κ·σ balances expected performance with exploration value.

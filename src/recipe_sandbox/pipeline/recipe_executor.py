@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Type
 
 from recipe_sandbox.operators import (
+    BaseOperator,
     SourceMixOperator,
     TruncateSamplesOperator,
     VarentropyMixOperator,
@@ -21,6 +22,7 @@ from recipe_sandbox.operators import (
     ActionObjectBranchingFilterOperator,
     VarentropyFilterOperator,
 )
+from recipe_sandbox.pipeline.hooks import RecipeHookManager
 from recipe_sandbox.pipeline.task_config import RecipeConfig, RecipeStepConfig, TaskConfig
 from recipe_sandbox.pipeline.task_manager import TaskManager
 from recipe_sandbox.schema.io import read_jsonl
@@ -30,9 +32,11 @@ from recipe_sandbox.feedback.state_vector import DataStateComputer, DataStateVec
 MIN_VIABLE_SAMPLES = 500
 
 
-def build_default_operator_registry() -> OperatorRegistry:
+def build_default_operator_registry(
+    extra_operators: Optional[Iterable[Type[BaseOperator]]] = None,
+) -> OperatorRegistry:
     registry = OperatorRegistry()
-    for operator_cls in [
+    registry.register_many([
         # F1: Source Mixing
         SourceMixOperator,
         TruncateSamplesOperator,
@@ -52,8 +56,9 @@ def build_default_operator_registry() -> OperatorRegistry:
         SemDeDupOperator,
         # F5: Set Operations
         UnionOperator,
-    ]:
-        registry.register(operator_cls)
+    ])
+    if extra_operators:
+        registry.register_many(extra_operators)
     return registry
 
 
@@ -86,12 +91,14 @@ class RecipeExecutor:
         registry: Optional[OperatorRegistry] = None,
         sparse_cache: Optional[Any] = None,
         cached_train_samples: Optional[List[CanonicalSample]] = None,
+        hooks: Optional[Sequence[Any]] = None,
     ) -> None:
         self.config = config
         self.manager = manager
         self.registry = registry or build_default_operator_registry()
         self._sparse_cache = sparse_cache  # SparseFeatureCache or None
         self._cached_train_samples = cached_train_samples  # in-memory samples with all numeric features
+        self.hooks = RecipeHookManager(hooks)
 
     def input_source_names(self, stage: str = "canonical", split: str = "train") -> List[str]:
         samples = self._load_input_samples(stage, split)
@@ -134,6 +141,7 @@ class RecipeExecutor:
             d_sae=self.config.model.d_sae if self.config.model else None,
         )
         initial_state = state_computer.compute(samples)
+        self.hooks.before_recipe(recipe=recipe, bus=bus, state=initial_state)
 
         step_traces: List[Dict[str, Any]] = []
         self.manager.log(
@@ -175,7 +183,7 @@ class RecipeExecutor:
         )
         self.manager.log(f"Final state vector: {_format_state_vector(final_state)}")
 
-        return RecipeExecutionResult(
+        result = RecipeExecutionResult(
             recipe_name=recipe.recipe_name,
             input_samples=input_samples,
             output_samples=len(bus.samples),
@@ -186,6 +194,8 @@ class RecipeExecutor:
             initial_state=initial_state_payload,
             final_state=final_state.to_dict(),
         )
+        self.hooks.after_recipe(recipe=recipe, result=result)
+        return result
 
     def _load_input_samples(self, stage: str, split: str, manager: Optional[TaskManager] = None) -> List[CanonicalSample]:
         # Fast path: return in-memory cached samples (already have all numeric features)
@@ -226,6 +236,37 @@ class RecipeExecutor:
         state_computer: DataStateComputer,
         initial_state: DataStateVector,
     ) -> tuple[RecipeDataBus, DataStateVector]:
+        try:
+            return self._apply_step_impl(
+                bus=bus,
+                recipe=recipe,
+                step=step,
+                step_index=step_index,
+                step_traces=step_traces,
+                state_computer=state_computer,
+                initial_state=initial_state,
+            )
+        except Exception as error:
+            self.hooks.on_step_error(
+                recipe=recipe,
+                step=step,
+                step_index=step_index,
+                bus=bus,
+                error=error,
+            )
+            raise
+
+    def _apply_step_impl(
+        self,
+        *,
+        bus: RecipeDataBus,
+        recipe: RecipeConfig,
+        step: RecipeStepConfig,
+        step_index: int,
+        step_traces: List[Dict[str, Any]],
+        state_computer: DataStateComputer,
+        initial_state: DataStateVector,
+    ) -> tuple[RecipeDataBus, DataStateVector]:
         operator_name = step.resolved_operator_name
         step_label = step.name or operator_name
         operator = self.registry.create(operator_name, **step.resolved_operator_config)
@@ -244,6 +285,15 @@ class RecipeExecutor:
         state_before = state_computer.compute(bus.samples)
         self.manager.log(
             f"Recipe step {step_index}: {step_label} ({operator_name}) on {len(bus.samples)} {bus.stage} samples"
+        )
+        self.hooks.before_step(
+            recipe=recipe,
+            step=step,
+            step_index=step_index,
+            operator=operator,
+            bus=bus,
+            state_before=state_before,
+            step_context=step_context,
         )
 
         outputs = operator.apply(bus.samples, task_context=step_context)
@@ -269,12 +319,22 @@ class RecipeExecutor:
         self.manager.log(f"  State AFTER:  {_format_state_vector(state_after)}")
         self.manager.log(f"  Δ_loc:  {_format_delta(step_trace['delta_loc'])}")
         self.manager.log(f"  Δ_glob: {_format_delta(step_trace['delta_glob'])}")
-        return RecipeDataBus(
+        next_bus = RecipeDataBus(
             samples=outputs,
             stage=next_stage,
             split=bus.split,
             task_context=dict(bus.task_context),
-        ), initial_state
+        )
+        self.hooks.after_step(
+            recipe=recipe,
+            step=step,
+            step_index=step_index,
+            operator=operator,
+            bus_before=bus,
+            bus_after=next_bus,
+            step_trace=step_trace,
+        )
+        return next_bus, initial_state
 
     def _build_trace_payload(
         self,

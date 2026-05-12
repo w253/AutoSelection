@@ -32,7 +32,7 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
     1. Generates deterministic staged warmup recipes.
     2. Builds a candidate pool via ActionLLM (incorporating Diagnosis feedback).
     3. Batch-executes candidate pipelines to get state vectors (for LLM context).
-    4. Scores candidates via ANOVARegressor (11D recipe → utility) computing UCB.
+    4. Scores candidates via ANOVARegressor (recipe encoding → utility) computing UCB.
     5. SelectionLLM picks one candidate for full evaluation.
     """
     
@@ -66,7 +66,9 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
         if selection_llm is None:
             raise ValueError("selection_llm is required in the final MCTS search path.")
         self.stagnation_patience: int = stagnation_patience
-        self.surrogate = ANOVARegressor()
+        registry = getattr(self.executor, "registry", None)
+        operator_order = resolve_operator_space(registry.names()) if registry is not None else None
+        self.surrogate = ANOVARegressor(operator_order=operator_order)
         self.catalog_path = catalog_path
         self.feedback_llm = feedback_llm
         self.selection_llm = selection_llm
@@ -742,7 +744,7 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
 
     def _available_search_operators(self) -> set[str]:
         registry = getattr(getattr(self, "executor", None), "registry", None)
-        operators = set(registry.list()) if registry is not None else set()
+        operators = registry.names() if registry is not None else ()
         return set(resolve_operator_space(operators))
 
     def _persist_warmup_recipes(self, recipes: List[RecipeConfig]) -> None:
@@ -1160,8 +1162,8 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
             best.recipe.recipe_name, best.score
         )
 
-        # --- 2. Surrogate Search Loop (11D recipe → score) ---
-        logger.info("PHASE 2: ANOVARegressor Search (batch pipeline → GP(11D) → SelectionLLM)...")
+        # --- 2. Surrogate Search Loop (recipe encoding → score) ---
+        logger.info("PHASE 2: ANOVARegressor Search (batch pipeline → GP recipe encoding → SelectionLLM)...")
         
         unexplored_pool = self._unexplored_pool
         

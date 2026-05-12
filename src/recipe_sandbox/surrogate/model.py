@@ -1,6 +1,7 @@
-import numpy as np
 import logging
 from typing import Dict, List, Optional, Sequence, Tuple
+
+import numpy as np
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern, ConstantKernel as C
 
@@ -22,7 +23,7 @@ class ANOVARegressor:
     mean predicted score and the epistemic uncertainty for UCB-based MCTS.
     """
     
-    def __init__(self):
+    def __init__(self, operator_order: Optional[Sequence[str]] = None):
         kernel = C(1.0, (1e-3, 1e3)) * Matern(length_scale=1.0, length_scale_bounds=(1e-2, 1e2), nu=2.5)
         self.model = GaussianProcessRegressor(
             kernel=kernel, 
@@ -32,9 +33,15 @@ class ANOVARegressor:
         )
         self.is_fitted = False
         self._known_recipes: Dict[str, RecipeConfig] = {}
+        if operator_order is None:
+            self._base_operator_order = _GP_BASE_OPERATOR_ORDER
+        else:
+            self._base_operator_order = tuple(
+                str(op) for op in operator_order if str(op) != "union"
+            )
         
     def _encode_recipes(self, recipes: List[RecipeConfig]) -> np.ndarray:
-        """Encode recipes via union-aware fusion over the official operator space."""
+        """Encode recipes via union-aware fusion over the configured operator space."""
         lookup = dict(self._known_recipes)
         lookup.update({recipe.recipe_name: recipe for recipe in recipes if recipe.recipe_name})
 
@@ -121,9 +128,9 @@ class ANOVARegressor:
         return np.vstack(encodings) if encodings else np.empty((0, 0), dtype=float)
 
     def _encode_base(self, recipe: RecipeConfig) -> np.ndarray:
-        """Encode the official operator space (excluding union, which is handled via fusion).
+        """Encode the configured operator space.
 
-        Dimensions (17 total):
+        Built-in operator dimensions:
           truncate_samples:        enabled(0/1), total_samples/100000
           mona_filter:             enabled(0/1), fraction
           ifd_filter:              enabled(0/1), fraction
@@ -132,38 +139,92 @@ class ANOVARegressor:
           varentropy_filter:       enabled(0/1), fraction
           semantic_dedup:          enabled(0/1), jaccard_threshold
           semdedup:                enabled(0/1), num_clusters/10000, cosine_threshold
+
+        Extension operators use: enabled(0/1), generic numeric intensity.
         """
 
         op_map = {step.operator: step.params for step in recipe.steps if step.enabled}
         vec: list[float] = []
 
-        for operator_name in _GP_BASE_OPERATOR_ORDER:
-            if operator_name == "truncate_samples":
-                if operator_name in op_map:
-                    total_samples = float(op_map[operator_name].get("total_samples", 10000))
-                    vec.extend([1.0, max(0.0, min(1.0, total_samples / 100000.0))])
-                else:
-                    vec.extend([0.0, 1.0])
-            elif operator_name == "semantic_dedup":
-                if operator_name in op_map:
-                    threshold = float(op_map[operator_name].get("jaccard_threshold", 0.8))
-                    vec.extend([1.0, threshold])
-                else:
-                    vec.extend([0.0, 1.0])
-            elif operator_name == "semdedup":
-                if operator_name in op_map:
-                    num_clusters = float(op_map[operator_name].get("num_clusters", 1000))
-                    cosine_threshold = float(op_map[operator_name].get("cosine_threshold", 0.95))
-                    vec.extend([1.0, num_clusters / 10000.0, cosine_threshold])
-                else:
-                    vec.extend([0.0, 0.1, 1.0])
-            else:
-                if operator_name in op_map:
-                    vec.extend([1.0, float(op_map[operator_name].get("fraction", 0.5))])
-                else:
-                    vec.extend([0.0, 1.0])
+        for operator_name in self._base_operator_order:
+            params = op_map.get(operator_name)
+            vec.extend(self._encode_operator(operator_name, params))
 
         return np.array(vec, dtype=float)
+
+    def _encode_operator(
+        self,
+        operator_name: str,
+        params: Optional[Dict[str, object]],
+    ) -> List[float]:
+        if operator_name == "truncate_samples":
+            if params:
+                total_samples = float(params.get("total_samples", 10000))
+                return [1.0, max(0.0, min(1.0, total_samples / 100000.0))]
+            return [0.0, 1.0]
+
+        if operator_name == "semantic_dedup":
+            if params:
+                threshold = float(params.get("jaccard_threshold", 0.8))
+                return [1.0, max(0.0, min(1.0, threshold))]
+            return [0.0, 1.0]
+
+        if operator_name == "semdedup":
+            if params:
+                num_clusters = float(params.get("num_clusters", 1000))
+                cosine_threshold = float(params.get("cosine_threshold", 0.95))
+                return [
+                    1.0,
+                    max(0.0, min(1.0, num_clusters / 10000.0)),
+                    max(0.0, min(1.0, cosine_threshold)),
+                ]
+            return [0.0, 0.1, 1.0]
+
+        if operator_name in _GP_BASE_OPERATOR_ORDER:
+            if params:
+                return [1.0, float(params.get("fraction", 0.5))]
+            return [0.0, 1.0]
+
+        if params:
+            return [1.0, self._generic_operator_intensity(params)]
+        return [0.0, 0.0]
+
+    def _generic_operator_intensity(self, params: Dict[str, object]) -> float:
+        preferred_keys = (
+            "fraction",
+            "rate",
+            "ratio",
+            "threshold",
+            "jaccard_threshold",
+            "cosine_threshold",
+            "temperature",
+            "top_k",
+            "total_samples",
+        )
+        for key in preferred_keys:
+            if key in params:
+                return self._normalize_numeric_param(params[key])
+        for value in params.values():
+            normalized = self._normalize_numeric_param(value, default=None)
+            if normalized is not None:
+                return normalized
+        return 0.5
+
+    def _normalize_numeric_param(
+        self,
+        value: object,
+        *,
+        default: Optional[float] = 0.5,
+    ) -> Optional[float]:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return default
+        if numeric < 0:
+            return default
+        if numeric <= 1:
+            return numeric
+        return max(0.0, min(1.0, np.log1p(numeric) / np.log1p(100000.0)))
 
     def fit(self, recipes: List[RecipeConfig], utilities: List[float]):
         """Fit the GP model to historical data."""

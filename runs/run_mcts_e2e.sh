@@ -49,6 +49,8 @@ OUTPUT_DIR="${OUTPUT_DIR:-}"
 RESUME="${RESUME:-0}"
 TASK_CONFIG="${TASK_CONFIG:-}"
 TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-1}"
+OPERATOR_CATALOG="${OPERATOR_CATALOG:-examples/recipes/operator_catalog.yaml}"
+EXTENSION_MODULES="${EXTENSION_MODULES:-${RECIPE_SANDBOX_EXTENSIONS:-}}"
 
 STAGNATION_PATIENCE="${STAGNATION_PATIENCE:-4}"    # steps before trajectory restart
 
@@ -58,6 +60,7 @@ export OPENAI_API_KEY="${OPENAI_API_KEY:-EMPTY}"
 export LLM_MODEL="${LLM_MODEL:-gpt-4o-mini}"
 # Thinking/reasoning model for strategic decisions (Feedback, Action, Selection LLMs)
 export THINKING_MODEL="${THINKING_MODEL:-${LLM_MODEL}}"
+export RECIPE_SANDBOX_EXTENSIONS="${EXTENSION_MODULES}"
 
 # --- Data Ingestion (Raw Data mapping -> Canonical) ---
 DEFAULT_TRAIN_DATA="${DATA_DIR}/train3/merged_data.jsonl"
@@ -77,7 +80,11 @@ echo "  Target Vector Source: ${TARGET_VECTOR_DATA}"
 echo "  Agent: ${LLM_MODEL} @ ${OPENAI_BASE_URL}"
 echo "  Thinking Model: ${THINKING_MODEL}"
 echo "  Budget: ${BUDGET}h | LHS Seeds: ${N_LHS_SEEDS}"
+echo "  Operator Catalog: ${OPERATOR_CATALOG}"
 echo "  Eval TP: ${TENSOR_PARALLEL_SIZE}"
+if [ -n "${EXTENSION_MODULES}" ]; then
+    echo "  Extensions: ${EXTENSION_MODULES}"
+fi
 if [ -n "${TASK_CONFIG}" ]; then
     echo "  Ingestion Source: ${TASK_CONFIG} (via PipelineOrchestrator)"
 fi
@@ -110,6 +117,9 @@ fi
 if [ -n "${DEEPSPEED_CONFIG}" ]; then
     EXTRA_ARGS+=(--deepspeed "${DEEPSPEED_CONFIG}")
 fi
+if [ -n "${EXTENSION_MODULES}" ]; then
+    EXTRA_ARGS+=(--extension_modules "${EXTENSION_MODULES}")
+fi
 
 # Point to Canonical logic  
 # Determine log file path for tee
@@ -128,6 +138,7 @@ python runs/run_mcts_e2e_engine.py \
     --sae_path "${SAE_PATH}" \
     --eval_tasks "${EVAL_TASKS}" \
     --thinking_model "${THINKING_MODEL}" \
+    --operator_catalog "${OPERATOR_CATALOG}" \
     --sae_top_k "${SAE_TOP_K}" \
     --sae_batch_size 4 \
     --sae_max_length 2048 \

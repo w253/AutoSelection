@@ -132,6 +132,7 @@ BUDGET=20.0 \
 N_LHS_SEEDS=3 \
 NUM_EPOCHS=3.0 \
 STAGNATION_PATIENCE=4 \
+OPERATOR_CATALOG=examples/recipes/operator_catalog.yaml \
 TENSOR_PARALLEL_SIZE=1 \
 bash runs/run_mcts_e2e.sh
 ```
@@ -234,7 +235,61 @@ python runs/run_multi_ckpt_eval.py \
   --output_dir runs/multi_ckpt_eval
 ```
 
-## 8. Quick Checks
+## 8. Extending Operators and Hooks
+
+New operators should subclass `BaseOperator` or one of its typed bases in
+`src/recipe_sandbox/operators/base.py`, then register through a small extension
+module on `PYTHONPATH`.
+
+Example extension module:
+
+```python
+from recipe_sandbox.operators.base import FilterOperator
+
+
+class MyFilter(FilterOperator):
+    name = "my_filter"
+    version = "v1"
+
+    def transform(self, dataset):
+        return list(dataset)
+
+
+def register_operators(registry):
+    registry.register(MyFilter)
+```
+
+Run with:
+
+```bash
+EXTENSION_MODULES=my_package.my_extension \
+OPERATOR_CATALOG=/path/to/operator_catalog.yaml \
+bash runs/run_mcts_e2e.sh
+```
+
+For MCTS/LLM search, also add the operator description and tunable parameters to
+the catalog passed via `OPERATOR_CATALOG`; the registry controls execution, while
+the catalog controls how the proposer talks about the operator. Extension
+operators are appended to the search vocabulary automatically. The surrogate uses
+a generic numeric intensity feature for unknown operators; add a dedicated branch
+in `ANOVARegressor._encode_operator()` if a new operator needs custom features.
+
+Recipe execution hooks can observe lifecycle events without changing each
+operator. An extension module may expose `get_recipe_hooks()` or `RECIPE_HOOKS`.
+Hook objects can implement any subset of:
+
+```text
+before_recipe(recipe, bus, state)
+after_recipe(recipe, result)
+before_step(recipe, step, step_index, operator, bus, state_before, step_context)
+after_step(recipe, step, step_index, operator, bus_before, bus_after, step_trace)
+on_step_error(recipe, step, step_index, bus, error)
+```
+
+Use hooks for logging, validation, telemetry, or experiment bookkeeping. Put data
+transformations in operators so traces and manifests stay reproducible.
+
+## 9. Quick Checks
 
 ```bash
 bash -n runs/run_mcts_e2e.sh
@@ -244,4 +299,3 @@ python -m compileall -q runs src
 
 If `run_mcts_e2e_engine.py --help` fails with `ModuleNotFoundError:
 No module named 'sklearn'`, install `scikit-learn` in the active environment.
-

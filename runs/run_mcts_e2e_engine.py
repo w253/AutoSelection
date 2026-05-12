@@ -41,6 +41,7 @@ from recipe_sandbox.search.operator_policy import resolve_operator_space
 from recipe_sandbox.agents.action_llm import ActionLLMGenerator, LLMConfig
 from recipe_sandbox.agents.feedback_llm import FeedbackLLM
 from recipe_sandbox.agents.selection_llm import SelectionLLM
+from recipe_sandbox.extensions import load_extensions, parse_extension_modules
 from recipe_sandbox.schema.io import iter_samples_without_numeric_extras
 
 logging.basicConfig(
@@ -366,6 +367,10 @@ def parse_args():
     parser.add_argument("--thinking_model", type=str, default=os.getenv("THINKING_MODEL", ""),
                         help="Model endpoint for reasoning/thinking LLM (used for all 3 LLM agents). "
                              "If empty, falls back to --llm_model.")
+    parser.add_argument("--operator_catalog", type=str, default=os.getenv("OPERATOR_CATALOG", "examples/recipes/operator_catalog.yaml"),
+                        help="YAML catalog used by the LLM proposer to describe available operators.")
+    parser.add_argument("--extension_modules", type=str, default=os.getenv("RECIPE_SANDBOX_EXTENSIONS", os.getenv("EXTENSION_MODULES", "")),
+                        help="Comma-separated Python modules that register custom operators/hooks.")
     
     # Full fine-tuning / Eval Params
     parser.add_argument("--deepspeed", type=str, default="",
@@ -837,6 +842,15 @@ def run_e2e():
     
     # 4. Executor and Registry
     registry = build_default_operator_registry()
+    extension_modules = parse_extension_modules(args.extension_modules)
+    extension_hooks = load_extensions(extension_modules, registry=registry)
+    if extension_modules:
+        logger.info(
+            "Loaded %d extension module(s), %d recipe hook(s), %d registered operator(s)",
+            len(extension_modules),
+            len(extension_hooks),
+            len(registry.names()),
+        )
 
     if pending_train_cache_save is not None:
         logger.info(
@@ -846,10 +860,11 @@ def run_e2e():
 
     executor = RecipeExecutor(task_config, manager, registry,
                               sparse_cache=sparse_cache,
-                              cached_train_samples=all_train_samples)
+                              cached_train_samples=all_train_samples,
+                              hooks=extension_hooks)
     
     # 5. LLM Agents (Action, Feedback, Selection) + ThinkingLogger
-    catalog_path = "examples/recipes/operator_catalog.yaml"
+    catalog_path = args.operator_catalog
     thinking_model = args.thinking_model or args.llm_model
     
     # Initialize ThinkingLogger for recording LLM reasoning traces
@@ -857,7 +872,7 @@ def run_e2e():
     thinking_logger = ThinkingLogger(str(out_dir))
     
     allowed_search_operators = set(resolve_operator_space(
-        registry.list().keys(),
+        registry.names(),
     ))
     pool_size = len(all_train_samples)
     logger.info("Pool size for MCTS/generation: %d samples", pool_size)
