@@ -122,17 +122,6 @@ _register(StateKeyMeta(
 ))
 
 _register(StateKeyMeta(
-    key="format_integrity",
-    display_name="Format Integrity",
-    description=(
-        "Fraction of samples with valid message format and non-empty target "
-        "(1.0 = all valid). Below 0.95 indicates data corruption."
-    ),
-    range_hint="[0, 1]",
-    direction="higher_better",
-))
-
-_register(StateKeyMeta(
     key="cumulative_cost_ratio",
     display_name="Eval Budget Used",
     description="Fraction of total evaluation budget consumed so far.",

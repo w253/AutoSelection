@@ -16,7 +16,7 @@ except ImportError:
 
 @dataclass
 class DataStateVector:
-    """Compact state vector for one dataset snapshot (9 scalar dims + per-task scores).
+    """Compact state vector for one dataset snapshot (8 scalar dims + per-task scores).
 
     Dimensions are defined in ``feedback.state_registry.STATE_KEY_REGISTRY``.
     """
@@ -28,7 +28,6 @@ class DataStateVector:
     score_std: float
     mean_varentropy: float
     mean_ifd: float
-    format_integrity: float
     cumulative_cost_ratio: float = 0.0  # completed_evaluations / max_evaluations
     score_per_task: Dict[str, float] = field(default_factory=dict)  # per-benchmark MONA mean
 
@@ -116,7 +115,6 @@ class DataStateComputer:
         score_per_task = self._score_stats_per_task(records)
         mean_varentropy = self._mean_varentropy(records)
         mean_ifd = self._mean_ifd(records)
-        format_integrity = self._format_integrity(records)
 
         return DataStateVector(
             retain_ratio=self._round(retain_ratio),
@@ -126,7 +124,6 @@ class DataStateComputer:
             score_std=self._round(score_std),
             mean_varentropy=self._round(mean_varentropy),
             mean_ifd=self._round(mean_ifd),
-            format_integrity=self._round(format_integrity),
             score_per_task={k: self._round(v) for k, v in score_per_task.items()},
         )
 
@@ -294,27 +291,6 @@ class DataStateComputer:
             return 0.5
         ratio = raw / self._ref_mean_ifd
         return min(max(ratio, 0.0), 2.0) / 2.0
-
-    # ------------------------------------------------------------------
-    #  Format integrity
-    # ------------------------------------------------------------------
-
-    def _format_integrity(self, dataset: Sequence[CanonicalSample]) -> float:
-        if not dataset:
-            return 0.0
-        valid = 0
-        for sample in dataset:
-            has_messages = bool(sample.messages) and all(
-                bool((message.content or "").strip()) for message in sample.messages
-            )
-            target_text = ""
-            target_structured = None
-            if sample.target is not None:
-                target_text = (sample.target.text or "").strip()
-                target_structured = getattr(sample.target, "structured", None)
-            has_target = bool(target_text) or bool(target_structured)
-            valid += 1 if has_messages and has_target else 0
-        return self._safe_ratio(valid, len(dataset))
 
     # ------------------------------------------------------------------
     #  Utilities

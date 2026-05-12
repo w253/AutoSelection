@@ -357,7 +357,7 @@ def parse_args():
         "--max_evaluations",
         type=_parse_evaluation_budget,
         default=None,
-        help="Maximum number of completed full train+benchmark evaluations.",
+        help="Maximum number of completed evaluations.",
     )
     parser.add_argument(
         "--budget",

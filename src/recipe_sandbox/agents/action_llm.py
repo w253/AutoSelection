@@ -225,7 +225,6 @@ Current Recipe:
 {self._render_current_recipe(current_recipe)}
 
 Current Metric Score: {score:.4f}
-Tracked Search Time: {cost:.2f} hours
 
 === INSTRUCTIONS ===
 1. Analyze the current recipe and its performance.
@@ -418,7 +417,6 @@ Current Recipe:
 {self._render_current_recipe(current_recipe)}
 
 Current Metric Score: {score:.4f}
-Tracked Search Time: {cost:.2f} hours
 {state_section}{benchmark_section}
 {pool_section}{history_section}{insights_section}{union_section}=== INSTRUCTIONS ===
 1. Analyze the current recipe, state vector, and search history.

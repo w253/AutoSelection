@@ -19,7 +19,6 @@ class ExperimentMetrics:
     mean_score: float = 0.0
     coverage_ratio: float = 1.0
     source_entropy: float = 0.0
-    format_integrity: float = 1.0
     wall_clock_sec: float = 0.0
     output_samples: int = 0
     input_samples: int = 0
@@ -353,7 +352,6 @@ class ExperimentSearchController:
         mean_score = sum(scores) / len(scores) if scores else 0.0
         coverage_ratio = output_samples / input_samples
         source_entropy = self._source_entropy(samples)
-        format_integrity = self._format_integrity(samples)
         wall_clock_sec = sum(float(step["trace"]["cost"].get("wall_clock_sec") or 0.0) for step in result.step_traces)
         token_delta = sum(
             int(step["trace"]["stats"].get("token_delta") or 0)
@@ -362,7 +360,6 @@ class ExperimentSearchController:
         objective_score = (
             mean_score
             + 0.05 * source_entropy
-            + 0.05 * format_integrity
             - 0.12 * max(0.0, 0.7 - coverage_ratio)
             - 0.01 * wall_clock_sec
         )
@@ -370,7 +367,6 @@ class ExperimentSearchController:
             mean_score=round(mean_score, 6),
             coverage_ratio=round(coverage_ratio, 6),
             source_entropy=round(source_entropy, 6),
-            format_integrity=round(format_integrity, 6),
             wall_clock_sec=round(wall_clock_sec, 6),
             output_samples=output_samples,
             input_samples=input_samples,
@@ -391,7 +387,6 @@ class ExperimentSearchController:
         score_delta = candidate.metrics.mean_score - reference.metrics.mean_score
         coverage_drop = reference.metrics.coverage_ratio - candidate.metrics.coverage_ratio
         entropy_drop = reference.metrics.source_entropy - candidate.metrics.source_entropy
-        format_drop = reference.metrics.format_integrity - candidate.metrics.format_integrity
         cost_ratio = 0.0
         if reference.metrics.wall_clock_sec > 0:
             cost_ratio = (candidate.metrics.wall_clock_sec - reference.metrics.wall_clock_sec) / reference.metrics.wall_clock_sec
@@ -432,18 +427,6 @@ class ExperimentSearchController:
                     supporting_metrics={"coverage_ratio": candidate.metrics.coverage_ratio, "source_entropy": candidate.metrics.source_entropy},
                     delta_evidence={"coverage_drop": round(coverage_drop, 6), "entropy_drop": round(entropy_drop, 6)},
                     suggested_actions=["relax dedup", "rollback"],
-                )
-            )
-        if any("clean" in step.get("operator", "") for step in recipe_steps) and format_drop > 0.05:
-            diagnoses.append(
-                DiagnosisRecord(
-                    diagnosis_code="FORMAT_DAMAGE",
-                    severity="medium",
-                    confidence=0.7,
-                    attributed_step=self._first_matching_step(step_names, recipe_steps, "clean"),
-                    supporting_metrics={"format_integrity": candidate.metrics.format_integrity},
-                    delta_evidence={"format_drop": round(format_drop, 6)},
-                    suggested_actions=["relax cleaning", "rollback"],
                 )
             )
         if cost_ratio > float(search.max_cost_increase_ratio) and score_delta < float(search.min_gain):
@@ -566,16 +549,6 @@ class ExperimentSearchController:
             probability = count / total
             entropy -= probability * math.log(probability + 1e-12)
         return entropy
-
-    def _format_integrity(self, samples: Sequence[CanonicalSample]) -> float:
-        if not samples:
-            return 0.0
-        valid = 0
-        for sample in samples:
-            has_messages = bool(sample.messages) and all(message.content.strip() for message in sample.messages)
-            has_target = sample.target.text is None or bool((sample.target.text or "").strip())
-            valid += 1 if has_messages and has_target else 0
-        return valid / len(samples)
 
     def _first_matching_step(
         self,

@@ -33,7 +33,7 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
     2. Builds a candidate pool via ActionLLM (incorporating Diagnosis feedback).
     3. Batch-executes candidate pipelines to get state vectors (for LLM context).
     4. Scores candidates via ANOVARegressor (recipe encoding → utility) computing UCB.
-    5. SelectionLLM picks one candidate for full evaluation.
+    5. SelectionLLM picks one candidate for evaluation.
     """
     
     def __init__(
@@ -866,7 +866,7 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
                 )
             except Exception as exc:
                 logger.error(
-                    "Warmup full eval failed for '%s': %s. Continuing with remaining warmup recipes.",
+                    "Warmup evaluation failed for '%s': %s. Continuing with remaining warmup recipes.",
                     pipeline_result["recipe"].recipe_name,
                     exc,
                 )
@@ -978,7 +978,7 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
             final_state["cumulative_cost_ratio"] = cost_ratio
 
     # ------------------------------------------------------------------
-    #  Full evaluation
+    #  Evaluation
     # ------------------------------------------------------------------
 
     def _evaluate_candidate(
@@ -1052,7 +1052,7 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
         self._update_surrogate()
 
         logger.info(
-            "[FULL EVAL %d/%d] %s: score=%.2f%%, eval_time=%.4fh",
+            "[EVAL %d/%d] %s: score=%.2f%%, eval_time=%.4fh",
             evaluation_index, self.max_evaluations,
             recipe.recipe_name, eval_result.dev_score, step_cost,
         )
@@ -1063,7 +1063,7 @@ class MCTSSearchLoop(BudgetedRecipeSearch):
     # ------------------------------------------------------------------
 
     def _update_surrogate(self):
-        """Fit ANOVARegressor on all verified (full eval) history."""
+        """Fit ANOVARegressor on all verified evaluation history."""
         verified = [c for c in self.history if getattr(c, "eval_mode", "full") == "full"]
         if not verified:
             return

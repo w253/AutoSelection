@@ -79,7 +79,7 @@ echo "  SAE: ${SAE_PATH}"
 echo "  Target Vector Source: ${TARGET_VECTOR_DATA}"
 echo "  Agent: ${LLM_MODEL} @ ${OPENAI_BASE_URL}"
 echo "  Thinking Model: ${THINKING_MODEL}"
-echo "  Evaluation Budget: ${MAX_EVALUATIONS} full evals | LHS Seeds: ${N_LHS_SEEDS}"
+echo "  Evaluation Budget: ${MAX_EVALUATIONS} evaluations | LHS Seeds: ${N_LHS_SEEDS}"
 echo "  Operator Catalog: ${OPERATOR_CATALOG}"
 echo "  Eval TP: ${TENSOR_PARALLEL_SIZE}"
 if [ -n "${EXTENSION_MODULES}" ]; then

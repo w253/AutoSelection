@@ -3,6 +3,12 @@
 This directory contains the final AutoSelection MCTS pipeline and evaluation
 entrypoints.
 
+<p align="center">
+  <a href="resources/main.pdf">
+    <img src="resources/main.png" alt="AutoSelection MCTS pipeline overview" width="860">
+  </a>
+</p>
+
 ## 1. Directory Layout
 
 ```text
@@ -137,8 +143,9 @@ TENSOR_PARALLEL_SIZE=1 \
 bash runs/run_mcts_e2e.sh
 ```
 
-`MAX_EVALUATIONS` counts completed full train+benchmark evaluations. Runtime
-hours are still recorded in logs, but they no longer stop the search.
+`MAX_EVALUATIONS` is the number of completed evaluations the search may run.
+Runtime is still recorded for diagnostics, but it is not used as the stopping
+budget.
 
 If using a custom DeepSpeed config:
 
