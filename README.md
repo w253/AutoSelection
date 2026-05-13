@@ -158,7 +158,7 @@ downloaded checkpoint directory:
 huggingface-cli download k253/Qwen2.5-3B-sae \
   --local-dir models/sae/qwen2.5-3b
 
-export SAE_PATH=models/sae/qwen2.5-3b
+export SAE_PATH=models/sae/qwen2.5-3b/layer.27
 ```
 
 We recommend [EleutherAI/sparsify](https://github.com/EleutherAI/sparsify) for
