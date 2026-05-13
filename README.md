@@ -143,6 +143,24 @@ AutoSelection consumes SAE features during cold-start scoring and subset-state
 construction. This repository assumes an SAE checkpoint already exists at
 `SAE_PATH`; train or reuse that artifact before launching the search.
 
+The SAE checkpoints used for the paper experiments are released on HuggingFace:
+
+| Base model | SAE checkpoint |
+| --- | --- |
+| Qwen2.5-1.5B | [k253/Qwen2.5-1.5B-sae](https://huggingface.co/k253/Qwen2.5-1.5B-sae) |
+| Qwen2.5-3B | [k253/Qwen2.5-3B-sae](https://huggingface.co/k253/Qwen2.5-3B-sae) |
+| Llama3.2-1B | [k253/Llama3.2-1B-sae](https://huggingface.co/k253/Llama3.2-1B-sae) |
+
+Download the SAE that matches your base model and point `SAE_PATH` to the
+downloaded checkpoint directory:
+
+```bash
+huggingface-cli download k253/Qwen2.5-3B-sae \
+  --local-dir models/sae/qwen2.5-3b
+
+export SAE_PATH=models/sae/qwen2.5-3b
+```
+
 We recommend [EleutherAI/sparsify](https://github.com/EleutherAI/sparsify) for
 SAE training. Its README describes a lightweight library for training k-sparse
 SAEs and transcoders on HuggingFace language-model activations, computing
