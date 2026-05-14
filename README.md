@@ -444,3 +444,17 @@ PYTHONPATH=src:. python -m unittest tests.test_extensions_smoke
 
 If `run_mcts_e2e_engine.py --help` fails with `ModuleNotFoundError:
 No module named 'sklearn'`, install `scikit-learn` in the active environment.
+
+## Citation
+
+```bibtex
+@misc{wu2026instanceselectionfixedpooldata,
+      title={From Instance Selection to Fixed-Pool Data Recipe Search for Supervised Fine-Tuning},
+      author={Haodong Wu and Jiahao Zhang and Lijie Hu and Yongqi Zhang},
+      year={2026},
+      eprint={2605.12944},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2605.12944},
+}
+```
