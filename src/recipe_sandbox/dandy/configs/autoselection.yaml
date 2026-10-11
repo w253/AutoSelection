@@ -1,0 +1,43 @@
+# 未填写项必须由用户确定；这是接口模板，不是本轮实验设置。
+mode: null                     # sft / grpo / opd-gkd，独立运行
+output_dir: null               # 每次新运行使用新目录；恢复时指定原目录
+stage_configs:
+  sft: src/recipe_sandbox/dandy/configs/sft.yaml
+  grpo: src/recipe_sandbox/dandy/configs/grpo.yaml
+  opd-gkd: src/recipe_sandbox/dandy/configs/opd_gkd.yaml
+runtime:
+  device_type: null             # npu / cuda / cpu；不自动探测
+  devices: null                # 显式设备编号列表
+scoring:
+  base_model: null              # 与 SAE 匹配的固定基础模型
+  sae_path: null                # 已有 encoder-only SAE，不在这里训练 SAE
+  device: null                  # 显式 Torch 设备；指标在当前进程运行
+  sae_token_batch_size: null
+  varentropy_token_chunk_size: null
+benchmarks:
+  directories: [src/recipe_sandbox/dandy/benchmarks]
+  main: [MMMU_Pro, MMStar, MathVista, MMBench-EN-Dev-V11]
+  ood: [MathVision-Wild, MME-RealWorld-Lite]
+  paths: {}                    # 名称到外部 data.json 路径；不复制数据入源码
+operators: [truncate_samples, mona_filter, ifd_filter, varentropy_filter, semdedup, union]
+catalog: examples/recipes/operator_catalog.yaml
+search:
+  max_evaluations: null
+  n_lhs_seeds: null
+  stagnation_patience: null
+  min_viable_samples: null      # 原文本执行器默认仍为 500
+  k_exploration: null
+llm:
+  model: null
+  base_url: null
+  api_key_env: null             # 只填写环境变量名，不写密钥
+evaluation:
+  batch_size: null
+  engine:
+    tensor_parallel_size: null
+    max_model_len: null
+    enforce_eager: null
+  generation:
+    max_tokens: null
+    temperature: null
+    top_p: null

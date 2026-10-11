@@ -1,0 +1,57 @@
+# 待填写模板：非本轮已批准实验。其余值沿用 DataRecipe，运行前逐项核对。
+model_path: null
+datasource: null
+total_sample: REQUIRED  # 正整数，或显式 null 表示全部数据
+sample_type: null
+seed: null
+lora_dropout: 0.0
+train_type: full
+freeze_vit: true
+freeze_aligner: true
+freeze_llm: false
+torch_dtype: bfloat16
+attn_impl: flash_attn
+num_train_epochs: null
+per_device_train_batch_size: null
+gradient_accumulation_steps: null
+learning_rate: 1.0e-06
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+deepspeed: zero3
+gradient_checkpointing: true
+save_only_model: true
+save_strategy: 'no'
+advantage_estimator: grpo
+loss_type: grpo
+scale_rewards: group
+num_iterations: 1
+epsilon: 0.2
+importance_sampling_level: token
+beta: 0.04
+temperature: 0.9
+num_generations: 4
+reward_funcs:
+- datarecipe_accuracy
+reward_weights:
+- 1.0
+max_length: 2048
+max_completion_length: 1024
+max_pixels: 602112
+truncation_strategy: delete
+overlong_filter: true
+dynamic_sample: true
+max_resample_times: 1
+use_vllm: true
+vllm_mode: colocate
+vllm_gpu_memory_utilization: 0.4
+vllm_max_model_len: 4096
+vllm_tensor_parallel_size: 1
+sleep_level: 1
+offload_optimizer: true
+report_to:
+- tensorboard
+logging_steps: 1
+logging_first_step: true
+include_num_input_tokens_seen: false
+log_completions: true
+log_entropy: true

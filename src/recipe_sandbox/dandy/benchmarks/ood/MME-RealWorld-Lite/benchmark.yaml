@@ -1,0 +1,13 @@
+name: MME-RealWorld-Lite
+version: datarecipe-v1
+modality: vlm
+data_path: ../../../../../../benchmarks/ood/MME-RealWorld-Lite/formatted_data/data.json
+roles:
+- ood
+partitions:
+  eval: data
+message_builder: recipe_sandbox.dandy.evaluation.messages:vlm_text_input
+scorer: recipe_sandbox.dandy.evaluation.scorers:answer_types
+params:
+  invalid_format_fallback_weight: 0.0
+label: MME-RealWorld-Lite / DataRecipe formatter protocol (not official leaderboard)

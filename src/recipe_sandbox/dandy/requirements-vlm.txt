@@ -1,0 +1,16 @@
+# 安装到 HPC 前须先核对现有环境；本次未执行安装或证明版本组合兼容。
+# Core AutoSelection dependencies are inherited from the upstream README.
+ms-swift==4.0.1
+transformers==4.57.6
+safetensors==0.8.0
+eai-sparsify==1.3.3
+qwen_vl_utils==0.0.14
+math-verify[antlr4_9_3]==0.9.0
+antlr4-python3-runtime==4.9.3
+Pillow
+# Offline benchmark formatters only:
+pyarrow==25.0.1
+pandas==2.3.3
+# Versions above come from DataRecipe's existing requirements, not a new compatibility claim.
+# torch and Ascend deployments' torch-npu, vllm and vllm-ascend must match the container.
+# Keep those hardware-specific builds managed by the HPC environment.

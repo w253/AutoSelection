@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from copy import deepcopy
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Type
 
 from recipe_sandbox.operators import (
@@ -92,13 +93,22 @@ class RecipeExecutor:
         sparse_cache: Optional[Any] = None,
         cached_train_samples: Optional[List[CanonicalSample]] = None,
         hooks: Optional[Sequence[Any]] = None,
+        min_viable_samples: int = MIN_VIABLE_SAMPLES,
+        isolate_metadata: bool = False,
     ) -> None:
+        """Build the executor; optional boundary/isolation settings preserve text defaults.
+
+        Dandy supplies its explicit minimum pool size and isolates candidate metadata.
+        Cached feature arrays remain shared read-only; sample metadata is copied per run.
+        """
         self.config = config
         self.manager = manager
         self.registry = registry or build_default_operator_registry()
         self._sparse_cache = sparse_cache  # SparseFeatureCache or None
         self._cached_train_samples = cached_train_samples  # in-memory samples with all numeric features
         self.hooks = RecipeHookManager(hooks)
+        self.min_viable_samples = min_viable_samples
+        self.isolate_metadata = isolate_metadata
 
     def input_source_names(self, stage: str = "canonical", split: str = "train") -> List[str]:
         samples = self._load_input_samples(stage, split)
@@ -116,6 +126,8 @@ class RecipeExecutor:
             raise ValueError("Recipe execution requested, but no recipe steps were configured")
 
         samples = self._load_input_samples(recipe.input_stage, recipe.input_split)
+        if self.isolate_metadata:
+            samples = [replace(sample, metadata=deepcopy(sample.metadata)) for sample in samples]
         input_samples = len(samples)
         task_context = {
             "task_name": self.config.task_name,
@@ -161,10 +173,10 @@ class RecipeExecutor:
                 state_computer=state_computer,
                 initial_state=initial_state,
             )
-            if len(bus.samples) < MIN_VIABLE_SAMPLES:
+            if len(bus.samples) < self.min_viable_samples:
                 self.manager.log(
                     f"WARNING: Step {index} ({step.operator}) left only "
-                    f"{len(bus.samples)} samples (< MIN_VIABLE={MIN_VIABLE_SAMPLES}). "
+                    f"{len(bus.samples)} samples (< MIN_VIABLE={self.min_viable_samples}). "
                     f"Halting remaining filters."
                 )
                 break

@@ -1,0 +1,14 @@
+name: MMMU_Pro
+version: datarecipe-v1
+modality: vlm
+data_path: ../../../../../../benchmarks/main/MMMU_Pro/formatted_data/data.json
+roles:
+- main
+partitions:
+  eval: data
+  prototype: sae_data
+message_builder: recipe_sandbox.dandy.evaluation.messages:vlm_text_input
+scorer: recipe_sandbox.dandy.evaluation.scorers:answer_types
+params:
+  invalid_format_fallback_weight: 0.0
+label: MMMU_Pro / DataRecipe formatter protocol (not official leaderboard)

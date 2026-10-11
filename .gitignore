@@ -18,3 +18,11 @@ runs/e2e_mcts_*/
 runs/ood_eval*/
 runs/multi_ckpt_eval*/
 runs/*.log
+
+# Dandy local notes, data and runtime outputs
+**/_notes.md
+outputs/
+logs/
+datasets/
+/benchmarks/
+**/formatted_data/
