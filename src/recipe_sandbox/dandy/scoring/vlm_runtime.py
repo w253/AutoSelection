@@ -539,7 +539,7 @@ class QwenSaeFeatureRuntime:
         """按SAE产物绑定信息加载基础VLM和encoder-only SAE。
 
         参数：
-            model_path：与artifact.model_identity严格一致的固定基础VLM目录。
+            model_path：基础VLM目录；不比较复制前后的文件标记。
             artifact：已由``load_sae_artifact_contract``校验的产物契约。
             device：Torch设备字符串。
             dtype：基础VLM前向精度，通常来自阶段YAML。
@@ -547,15 +547,13 @@ class QwenSaeFeatureRuntime:
 
         返回：
             无；实例持有基础VLM与FP32 SAE并占用设备内存。产物adapter、输入策略、
-            模型身份或hookpoint不一致时抛出异常。
+            hookpoint不存在或特征维度不匹配时抛出异常。
         """
-        from .sae_loader import load_encoder, model_identity
+        from .sae_loader import load_encoder
 
         metadata = artifact.metadata
         if metadata.get("adapter") != "qwen2_5_vl":
             raise ValueError("当前指标运行层只实现Qwen2.5-VL SAE产物")
-        if metadata["model_identity"] != model_identity(Path(model_path)):
-            raise ValueError("SAE产物与配置固定基础VLM身份不一致")
         policy = metadata["input_policy"]
         required_policy = {
             "include_answers",
@@ -589,7 +587,6 @@ class QwenSaeFeatureRuntime:
         )
         self.encoder = load_encoder(
             artifact.directory,
-            model_path,
             str(metadata["hookpoint"]),
             policy,
             device=device,

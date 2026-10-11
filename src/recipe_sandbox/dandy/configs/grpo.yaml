@@ -1,57 +1,77 @@
-# 待填写模板：非本轮已批准实验。其余值沿用 DataRecipe，运行前逐项核对。
-model_path: null
-datasource: null
-total_sample: REQUIRED  # 正整数，或显式 null 表示全部数据
-sample_type: null
-seed: null
-lora_dropout: 0.0
-train_type: full
-freeze_vit: true
-freeze_aligner: true
-freeze_llm: false
-torch_dtype: bfloat16
-attn_impl: flash_attn
-num_train_epochs: null
-per_device_train_batch_size: null
-gradient_accumulation_steps: null
-learning_rate: 1.0e-06
-lr_scheduler_type: cosine
-warmup_ratio: 0.1
-deepspeed: zero3
-gradient_checkpointing: true
-save_only_model: true
-save_strategy: 'no'
-advantage_estimator: grpo
-loss_type: grpo
-scale_rewards: group
-num_iterations: 1
-epsilon: 0.2
-importance_sampling_level: token
-beta: 0.04
-temperature: 0.9
-num_generations: 4
-reward_funcs:
-- datarecipe_accuracy
-reward_weights:
-- 1.0
-max_length: 2048
-max_completion_length: 1024
-max_pixels: 602112
-truncation_strategy: delete
-overlong_filter: true
-dynamic_sample: true
-max_resample_times: 1
-use_vllm: true
-vllm_mode: colocate
-vllm_gpu_memory_utilization: 0.4
-vllm_max_model_len: 4096
-vllm_tensor_parallel_size: 1
-sleep_level: 1
-offload_optimizer: true
-report_to:
-- tensorboard
-logging_steps: 1
-logging_first_step: true
-include_num_input_tokens_seen: false
-log_completions: true
-log_entropy: true
+# Synced from DataRecipe; candidate runner controls output/checkpoint saving.
+# ===== 1. 起始模型与数据混合 =====
+model_path: models/Qwen2.5-VL-3B-Instruct    # GRPO起始模型目录；正式实验时可替换为Full SFT或其他checkpoint。
+datasource:                                  # RLVR来源目录列表；每项必须指向包含data.json的formatted_data目录。
+  - path: datasets/rl/multimodal-open-r1-8k-verified/formatted_data    # 已复验的多模态数学与选择题数据。
+  - path: datasets/rl/Vision-R1-rl/formatted_data                      # Vision-R1视觉推理choice/math数据。
+  - path: datasets/rl/MMK12/formatted_data                             # MMK12多模态数学可验证数据。
+total_sample: 300                           # 本次试跑总量；正整数尽量均分来源并转移容量缺口，null表示使用全部数据。
+sample_type: sequential                         # sequential匹配预设时按formatter分层，否则头部取样；random随机抽样并整体打乱。
+seed: 42                                    # 控制数据抽样、合并打乱及GRPO rollout/训练的可复现随机种子。
+dataset_output_path: outputs/data/grpo_train.jsonl    # 多源数据转换为ms-swift格式后写出的训练JSONL路径。
+
+# ===== 2. 可训练模块与数值精度 =====
+lora_dropout: 0.0                           # 切换LoRA时禁用dropout；Full模式不使用。
+train_type: full                            # 使用全参数训练；ms-swift 4.x运行时由train.py转换为tuner_type。
+freeze_vit: true                            # 冻结视觉编码器，避免GRPO更新图像特征主干。
+freeze_aligner: true                        # 冻结视觉—语言连接模块，只优化语言模型部分。
+freeze_llm: false                           # 保持语言模型可训练；与train_type=full共同决定实际更新范围。
+torch_dtype: bfloat16                       # 以bf16加载并计算，要求目标NPU和算子栈支持。
+attn_impl: flash_attn                       # 使用FlashAttention 2兼容入口，降低长序列注意力开销。
+
+# ===== 3. 优化器、批量与训练周期 =====
+num_train_epochs: 2                         # 每个候选遍历入选训练集两轮。
+per_device_train_batch_size: 2              # 四张NPU时全局completion batch为8。
+gradient_accumulation_steps: 1              # 每次更新不再跨微步累积；按实际可见设备数校验分组。
+learning_rate: 1.0e-6                       # 策略模型初始学习率，保持当前GRPO基线值。
+lr_scheduler_type: cosine                   # 使用余弦学习率调度，保持ms-swift训练常用默认路线。
+warmup_ratio: 0.1                           # 前10%训练步骤执行学习率warmup，降低初始更新冲击。
+deepspeed: zero3                            # 使用DeepSpeed ZeRO-3切分模型参数、梯度和优化器状态。
+gradient_checkpointing: true                # 启用激活重计算，降低GRPO策略训练阶段的峰值显存占用。
+save_only_model: true                       # 手动启用保存时只写模型，不保存优化器等断点续训状态。
+save_strategy: "no"                         # 普通GRPO默认不保存训练checkpoint；引号避免YAML把no解析为false。
+
+# ===== 4. GRPO优势、损失与KL约束 =====
+advantage_estimator: grpo                   # 使用组内相对优势估计；显式写出ms-swift 4.0.1默认值。
+loss_type: grpo                             # 先按回答内token平均、再按样本平均；显式保持默认GRPO损失。
+scale_rewards: group                        # 按每个prompt组内奖励标准差缩放；显式保持GRPO默认值。
+num_iterations: 1                           # 每批rollout只执行1轮策略更新；显式保持ms-swift默认值。
+epsilon: 0.2                                # PPO式重要性比率对称裁剪范围；显式保持ms-swift默认值。
+importance_sampling_level: token            # 在token级计算重要性采样比率；显式保持ms-swift默认值。
+beta: 0.04                                  # 参考策略KL惩罚系数；保持ms-swift GRPO默认值以限制策略漂移。
+
+# ===== 5. Rollout生成与可验证奖励 =====
+temperature: 0.9                            # rollout采样温度；保持当前值以维持同题候选的探索多样性。
+num_generations: 4                          # 每个prompt生成4个候选；按用户决定保持G不变，全局completion batch必须可被4整除。
+reward_funcs:                               # 参与策略优化的奖励函数列表；当前只启用一个严格最终答案奖励。
+  - datarecipe_accuracy                     # 要求唯一标记且末行严格为##### {answer}；choice按字母/选项内容返回1/0.5/0，math返回1/0。
+reward_weights:                             # 各奖励的线性权重，顺序必须与reward_funcs一致。
+  - 1.0                                     # 正确性奖励使用默认权重1.0；当前不加入独立格式奖励。
+
+# ===== 6. 长度边界与有效组动态采样 =====
+max_length: 2048                            # 输入prompt最大token数（含视觉token）；InternVL切图后仍可能超限。
+max_completion_length: 1024                 # 每个候选回答最多生成1024个token。
+max_pixels: 602112                          # 训练图片像素上限；约768视觉token仅适用于Qwen2.5-VL，非InternVL切图上限。
+truncation_strategy: delete                 # 删除超长prompt并重采样，避免裁剪视觉token造成形状异常或OOM。
+overlong_filter: true                       # 跳过达到生成上限而被截断的回答，避免缺失最终答案造成噪声更新。
+dynamic_sample: true                        # 丢弃组内奖励标准差为0的全对/全错prompt，并补采新的有效组。
+max_resample_times: 1                       # 动态采样最多补采1轮；减少困难样本的额外rollout开销。
+
+# ===== 7. vLLM同卡Rollout与内存管理 =====
+use_vllm: true                              # 使用vLLM生成GRPO rollout，提高候选采样吞吐。
+vllm_mode: colocate                         # vLLM与训练进程共享同一组NPU，使用容器可见设备。
+vllm_gpu_memory_utilization: 0.4            # 每个vLLM实例最多使用单设备40%显存；NPU后端沿用该参数名。
+vllm_max_model_len: 4096                    # vLLM上下文上限，不小于2048 prompt加1024 completion的总长度。
+vllm_tensor_parallel_size: 1                # 每个vLLM实例使用1张NPU，不跨卡做张量并行。
+sleep_level: 1                              # 训练阶段释放vLLM权重占用，下一轮rollout前再恢复。
+offload_optimizer: true                     # 创建vLLM引擎前把优化器状态移到CPU，缓解colocate模式显存竞争。
+
+# ===== 8. 输出、日志与可审计性 =====
+output_dir: outputs/grpo                     # 保存checkpoint、训练参数、completion记录和日志的目录。
+report_to:                                  # 训练指标输出后端列表。
+  - tensorboard                             # 记录reward、loss、学习率、熵等指标供TensorBoard查看。
+logging_steps: 1                            # 每个训练步骤记录一次指标，便于小规模试跑定位异常。
+logging_first_step: true                    # 第一个训练步骤完成后立即写入首条训练指标。
+include_num_input_tokens_seen: false         # 当前模型无法提供有效的token计数，关闭无效统计。
+log_completions: true                       # 保存rollout文本及奖励，供人工抽查格式和verifier判定。
+log_entropy: true                           # 记录策略输出熵，用于监测探索衰减和训练坍缩。

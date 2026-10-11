@@ -1,30 +1,40 @@
-# 待填写模板：非本轮已批准实验。其余值沿用 DataRecipe，运行前逐项核对。
-model_path: null
-train_type: full
-datasource: null
-total_sample: REQUIRED  # 正整数，或显式 null 表示全部数据
-sample_type: null
-seed: null
-num_train_epochs: null
-per_device_train_batch_size: null
-gradient_accumulation_steps: null
-learning_rate: 2.0e-05
-lr_scheduler_type: cosine
-warmup_ratio: 0.1
-max_length: 8192
-max_pixels: 602112
-truncation_strategy: delete
-freeze_vit: true
-freeze_aligner: true
-freeze_llm: false
-torch_dtype: bfloat16
-attn_impl: flash_attn
-deepspeed: zero3
-gradient_checkpointing: true
-save_only_model: true
-save_strategy: 'no'
-report_to:
-- tensorboard
-logging_steps: 1
-logging_first_step: true
-include_num_input_tokens_seen: false
+# Synced from DataRecipe; candidate runner controls output/checkpoint saving.
+model_path: models/Qwen2.5-VL-3B-Instruct    # 基础模型目录；切换候选模型时修改这里。
+train_type: full                             # 全参数训练；ms-swift 4.x运行时转换为tuner_type。
+
+datasource:                                  # SFT来源目录；每项应指向包含data.json的formatted_data。
+  - path: datasets/sft/LLaVA-CoT-100k/formatted_data                # 结构化视觉推理与CoT数据。
+  - path: datasets/sft/VisualWebInstruct-verified/formatted_data    # 完整视觉推理与答案数据。
+  - path: datasets/sft/SciEGQA-Train/formatted_data                 # 科学图表简短答案数据。
+total_sample: 300                          # 本次试跑总量；null使用三个来源的全部格式化样本，正整数尽量均分并转移容量缺口。
+sample_type: sequential                          # sequential匹配预设时按formatter分层，否则头部取样；random随机抽样并整体打乱。
+seed: 42                                    # random模式的抽样、合并打乱及训练随机种子。
+dataset_output_path: outputs/data/sft_train.jsonl    # 多源数据混合后写出的ms-swift JSONL。
+
+num_train_epochs: 3                         # 每个候选遍历入选训练集三轮。
+per_device_train_batch_size: 1              # 每张NPU每个训练步骤处理的样本数。
+gradient_accumulation_steps: 1              # 四张NPU时全局batch为4，设备数由容器自动探测。
+
+learning_rate: 2.0e-5                       # 优化器初始学习率；保持项目论文复现设置。
+lr_scheduler_type: cosine                   # 使用余弦学习率调度器。
+warmup_ratio: 0.1                           # 前10%的训练步骤用于学习率warmup。
+
+max_length: 8192                            # 完整样本的最大token长度；配合图片限幅覆盖绝大多数数据并删除极少数离群样本。
+max_pixels: 602112                         # 训练单图最多约768个Qwen2.5-VL视觉token；评测图像不变。
+truncation_strategy: delete                 # 删除超过max_length的多模态样本，避免裁剪文本后仍保留全部视觉token而OOM。
+freeze_vit: true                           # 冻结视觉编码器参数，只训练未冻结模块。
+freeze_aligner: true                       # 冻结视觉与语言连接模块参数。
+freeze_llm: false                          # 不冻结语言模型，对其进行全参数训练。
+torch_dtype: bfloat16                       # 使用bf16权重与计算精度，要求NPU环境支持。
+attn_impl: flash_attn                       # 使用FlashAttention 2兼容入口，需容器依赖支持。
+deepspeed: zero3                            # 使用DeepSpeed ZeRO-3切分模型、梯度和优化器状态。
+gradient_checkpointing: true                # 启用激活重计算，降低全参数训练的峰值显存占用。
+save_only_model: true                       # 手动启用保存时只写模型，不保存优化器等断点续训状态。
+save_strategy: "no"                         # 普通SFT默认不保存训练checkpoint；引号避免YAML把no解析为false。
+
+output_dir: outputs/sft                     # 保存checkpoint、训练参数和日志的目录。
+report_to:                                  # 训练指标写入的日志后端列表。
+  - tensorboard                             # 使用TensorBoard记录loss、学习率等训练指标。
+logging_steps: 1                            # 每个训练步骤记录一次日志。
+logging_first_step: true                    # 在第一个训练步骤后立即记录一条日志。
+include_num_input_tokens_seen: false         # 当前模型无法提供有效的token计数，关闭无效统计。

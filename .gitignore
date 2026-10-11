@@ -26,3 +26,8 @@ logs/
 datasets/
 /benchmarks/
 **/formatted_data/
+
+# Local API credentials (read by dandy at runtime).
+.env
+.env.*
+!.env.example

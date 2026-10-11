@@ -1,43 +1,78 @@
-# 未填写项必须由用户确定；这是接口模板，不是本轮实验设置。
-mode: null                     # sft / grpo / opd-gkd，独立运行
-output_dir: null               # 每次新运行使用新目录；恢复时指定原目录
+# DataRecipe SFT/GRPO/OPD and Bailian settings; keep upstream AutoSelection search semantics.
+# Explicit HPC mapping: eight container-logical NPUs; no automatic device detection.
+# TP=8 replaces DataRecipe auto TP for this allocation. For the quick check use its generated YAML.
+# Dandy-only values: 3 warmup recipes, min_viable_samples=1, k_exploration=1.0.
+# SAE path uses the documented Hugging Face download directory (no dated source subdirectory).
+# SDK retries=0; upstream role/search retry logic retained, not DataRecipe max_attempts.
+# llm null generation options are omitted; temperature overrides all search-role temperatures.
+# .env is read from the repository root; existing process environment takes precedence.
+mode: sft
+output_dir: outputs/autoselection
 stage_configs:
   sft: src/recipe_sandbox/dandy/configs/sft.yaml
   grpo: src/recipe_sandbox/dandy/configs/grpo.yaml
   opd-gkd: src/recipe_sandbox/dandy/configs/opd_gkd.yaml
 runtime:
-  device_type: null             # npu / cuda / cpu；不自动探测
-  devices: null                # 显式设备编号列表
+  device_type: npu
+  devices:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
 scoring:
-  base_model: null              # 与 SAE 匹配的固定基础模型
-  sae_path: null                # 已有 encoder-only SAE，不在这里训练 SAE
-  device: null                  # 显式 Torch 设备；指标在当前进程运行
-  sae_token_batch_size: null
-  varentropy_token_chunk_size: null
+  base_model: models/Qwen2.5-VL-3B-Instruct
+  sae_path: models/sae/qwen2_5_vl_3b
+  device: npu:0
+  sae_token_batch_size: 256
+  varentropy_token_chunk_size: 32
 benchmarks:
-  directories: [src/recipe_sandbox/dandy/benchmarks]
-  main: [MMMU_Pro, MMStar, MathVista, MMBench-EN-Dev-V11]
-  ood: [MathVision-Wild, MME-RealWorld-Lite]
-  paths: {}                    # 名称到外部 data.json 路径；不复制数据入源码
-operators: [truncate_samples, mona_filter, ifd_filter, varentropy_filter, semdedup, union]
+  directories:
+  - src/recipe_sandbox/dandy/benchmarks
+  main:
+  - MMMU_Pro
+  - MMStar
+  - MathVista
+  - MMBench-EN-Dev-V11
+  ood:
+  - MathVision-Wild
+  - MME-RealWorld-Lite
+  paths: {}
+operators:
+- truncate_samples
+- mona_filter
+- ifd_filter
+- varentropy_filter
+- semdedup
+- union
 catalog: examples/recipes/operator_catalog.yaml
 search:
-  max_evaluations: null
-  n_lhs_seeds: null
-  stagnation_patience: null
-  min_viable_samples: null      # 原文本执行器默认仍为 500
-  k_exploration: null
+  max_evaluations: 10
+  n_lhs_seeds: 3
+  stagnation_patience: 3
+  min_viable_samples: 1
+  k_exploration: 1.0
 llm:
-  model: null
-  base_url: null
-  api_key_env: null             # 只填写环境变量名，不写密钥
+  base_url: https://llm-1q0rkti4mhpi8efg.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+  model: deepseek-v4-flash-0731
+  api_key_env: API_KEY
+  enable_thinking: true
+  timeout_seconds: 1000
+  temperature: 0.7
+  top_p: 0.95
+  max_tokens: null
+  thinking_budget: null
+  reasoning_effort: null
 evaluation:
-  batch_size: null
+  batch_size: 4
   engine:
-    tensor_parallel_size: null
-    max_model_len: null
-    enforce_eager: null
+    tensor_parallel_size: 8
+    max_model_len: 20480
+    enforce_eager: false
   generation:
-    max_tokens: null
-    temperature: null
-    top_p: null
+    max_tokens: 3072
+    temperature: 0.7
+    top_p: 0.95

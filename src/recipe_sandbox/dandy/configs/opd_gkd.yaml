@@ -1,26 +1,33 @@
-# 待填写模板：非本轮已批准实验。其余值沿用 DataRecipe，运行前逐项核对。
+# Synced from DataRecipe; candidate runner controls output/checkpoint saving.
+# 独立OPD-GKD：默认使用SFT数据集，Qwen2.5-VL-7B教师 → 3B学生。
+# 数据源、total_sample、sample_type、seed默认从此文件继承；可在本文件显式覆盖。
 dataset_config: src/recipe_sandbox/dandy/configs/sft.yaml
-model_path: null
-teacher_model: null
+model_path: models/Qwen2.5-VL-3B-Instruct
+teacher_model: models/Qwen2.5-VL-7B-Instruct
 model_type: qwen2_5_vl
 teacher_model_type: qwen2_5_vl
 train_type: full
-lmbda: 1.0
-beta: 1.0
-seq_kd: false
-sft_alpha: 0.0
-temperature: 0.9
-use_vllm: false
+dataset_output_path: outputs/data/opd_gkd_train.jsonl
+
+# GKD形式的纯在线OPD，beta不是GRPO中的参考策略KL权重。
+lmbda: 1.0                      # 全部由当前学生生成，不用数据集答案作为训练目标。
+beta: 1.0                       # 反向KL：KL(student || teacher)。
+seq_kd: false                   # 不改为教师生成回答。
+sft_alpha: 0.0                  # 不混入监督交叉熵。
+temperature: 0.9                # Swift GKD同时用于生成与蒸馏分布温度。
+use_vllm: false                 # 原生学生生成；首版避免第三份rollout模型占用NPU。
 packing: false
 padding_free: false
-use_logits_to_keep: false
-num_train_epochs: null
-per_device_train_batch_size: null
-gradient_accumulation_steps: null
-learning_rate: 2.0e-05
+use_logits_to_keep: false       # 原生generate路径显式关闭，遵循Swift GKD约束。
+
+# 初始运行参数，尚未在HPC验证7B教师+3B学生的显存与吞吐。
+num_train_epochs: 3
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 1
+learning_rate: 2.0e-5
 lr_scheduler_type: cosine
 warmup_ratio: 0.1
-max_length: 8192
+max_length: 8192                # prompt预算；选样指标仍读取原SFT参考答案。
 max_completion_length: 1024
 max_pixels: 602112
 truncation_strategy: delete
@@ -30,13 +37,14 @@ freeze_llm: false
 torch_dtype: bfloat16
 attn_impl: flash_attn
 deepspeed: zero3
-teacher_deepspeed: zero3
-offload_teacher_model: true
+teacher_deepspeed: zero3         # 教师仅前向，无梯度更新。
+offload_teacher_model: true     # 非教师前向期间卸载；实际显存和开销待HPC验证。
 gradient_checkpointing: true
-save_strategy: 'no'
+
+output_dir: outputs/opd_gkd
+save_strategy: "no"             # AutoSelection会覆盖为每候选保存最终学生checkpoint。
 save_only_model: true
-report_to:
-- tensorboard
+report_to: [tensorboard]
 logging_steps: 1
 logging_first_step: true
 include_num_input_tokens_seen: false

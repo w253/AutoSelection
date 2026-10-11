@@ -11,6 +11,107 @@ and recombine samples from the same fixed raw instruction pool.
   </a>
 </p>
 
+## Dandy multimodal extension
+
+`feature/dandy` adds DataRecipe's multimodal data, SAE scoring, SFT, GRPO,
+OPD-GKD and benchmark adapters under `src/recipe_sandbox/dandy/`. The original
+text entrypoints and search algorithm remain available. The optional VLM
+dependencies are listed in `src/recipe_sandbox/dandy/requirements-vlm.txt`;
+use accelerator builds compatible with your HPC container.
+
+### Released multimodal SAE encoders
+
+These are encoder-only SAE artifacts, not standalone language models.
+Download the base VLM separately and use the matching encoder:
+
+| Base VLM | SAE repository | Local directory |
+| --- | --- | --- |
+| Qwen2.5-VL-3B-Instruct | [AutoSelection-SAE-Qwen2.5-VL-3B](https://huggingface.co/dandaokmlf/AutoSelection-SAE-Qwen2.5-VL-3B) | `models/sae/qwen2_5_vl_3b` |
+| Qwen2.5-VL-7B-Instruct | [AutoSelection-SAE-Qwen2.5-VL-7B](https://huggingface.co/dandaokmlf/AutoSelection-SAE-Qwen2.5-VL-7B) | `models/sae/qwen2_5_vl_7b` |
+| InternVL2.5-2B | [AutoSelection-SAE-InternVL2.5-2B](https://huggingface.co/dandaokmlf/AutoSelection-SAE-InternVL2.5-2B) | `models/sae/internvl2_5_2b` |
+
+```bash
+hf download dandaokmlf/AutoSelection-SAE-Qwen2.5-VL-3B --local-dir models/sae/qwen2_5_vl_3b
+hf download dandaokmlf/AutoSelection-SAE-Qwen2.5-VL-7B --local-dir models/sae/qwen2_5_vl_7b
+hf download dandaokmlf/AutoSelection-SAE-InternVL2.5-2B --local-dir models/sae/internvl2_5_2b
+```
+
+Each directory must directly contain `artifact.json`, `cfg.json` and
+`sae.safetensors`. The current dandy scoring runtime supports Qwen2.5-VL;
+publishing the InternVL encoder does not add an InternVL runtime. Loading checks the required SAE files, encoder format, hookpoint, input policy
+and tensor dimensions. It does not compare base-model file names, sizes,
+modification times or full configuration dictionaries. Use the matching base
+VLM yourself; same-shaped fine-tuned checkpoints are not distinguished by this
+basic check. File timestamps remain part of local metric-cache invalidation.
+
+### Configuration and API credentials
+
+All dandy YAML files are in `src/recipe_sandbox/dandy/configs/`. SFT, GRPO and
+OPD-GKD training values follow the corresponding DataRecipe YAML; OPD inherits
+only SFT data settings. Evaluation values follow DataRecipe's `vllm_eval.yaml`.
+The candidate runner still controls output directories and final checkpoint
+saving. DataRecipe's automatic device discovery and multi-model overrides are
+not imported: the main run config explicitly selects Qwen 3B, eight logical
+NPUs and evaluation TP=8. Adapt these explicit values for another allocation.
+Search uses the upstream algorithm, with budget=10 and stagnation=3 from
+DataRecipe; dandy-specific settings are warmup=3, minimum samples=1 and UCB=1.0.
+
+Keep the API key in a repository-root `.env` file (ignored by Git):
+
+```dotenv
+API_KEY='your-key'
+```
+
+No shell `source` is needed. `llm.api_key_env` selects the variable name;
+the process environment takes precedence over `.env`. The reader accepts simple
+`KEY=value`, optional `export`, and matching single/double quotes, without shell
+execution or variable interpolation. Secrets are not written to run YAML.
+
+The supplied Bailian endpoint/model follows DataRecipe. `enable_thinking: true`
+uses streaming; server-side web search is disabled. `temperature: 0.7` overrides
+role temperatures and `top_p: 0.95` is sent on each request. `timeout_seconds`
+defaults to 1000; SDK retries are disabled and the original search-role retries
+remain in use. `max_tokens`, `thinking_budget` and `reasoning_effort` are omitted
+when absent/null; only set them when supported by the chosen endpoint/model.
+Reasoning text is not persisted. The configured search completed in the NPU
+integration check below; this does not guarantee future endpoint availability.
+
+From the repository root:
+
+```bash
+export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
+python -m recipe_sandbox.dandy validate --config src/recipe_sandbox/dandy/configs/autoselection.yaml
+python -m recipe_sandbox.dandy search --config src/recipe_sandbox/dandy/configs/autoselection.yaml
+```
+
+`validate` checks configuration/data only; it does not validate hardware or API
+availability. Use a fresh `output_dir` for each new search, or `--resume` for an
+unchanged existing run. Ten-step integration checks use a separate generated
+configuration, leaving the DataRecipe-aligned training defaults unchanged.
+
+### Real NPU integration validation (2026-10-11)
+
+A complete SFT quick check passed on one logical Ascend 910C NPU with
+Qwen2.5-VL-3B-Instruct and its matching SAE. The run used a 48-example fixed
+pool, three warmup candidates, a total budget of four completed candidate
+evaluations, and 10 optimizer steps per candidate (40 in total). All 48 examples
+completed metric preparation. Four main benchmarks used four examples each;
+the best checkpoint then completed two OOD benchmarks with four examples each.
+Search records, all four trainer states, per-example scores, summaries, the OOD
+checkpoint identity and `best.json` were cross-checked from the HPC artifacts.
+
+The best candidate was `warmup_exp_3` (eight selected examples), with a main
+score of 31.25/100. OOD scores were 0/4 on MathVision-Wild and 2/4 on
+MME-RealWorld-Lite. These use the DataRecipe formatter/scoring protocol, not
+an official leaderboard evaluation. Approximate end-to-end time was 21m 23s,
+including metric preparation, search, training and evaluation.
+
+This confirms the small SFT workflow, not recipe effectiveness: 37 of 72
+scored responses failed the answer-format check, including one empty response.
+All sampled questions used choice scoring. Resume, free-form math/yes-no
+scoring, GRPO, OPD-GKD and multi-NPU execution were not validated by this run.
+The quick-check overrides do not change the supplied full-run defaults.
+
 ## Abstract
 
 Supervised fine-tuning (SFT) data selection is commonly formulated as instance

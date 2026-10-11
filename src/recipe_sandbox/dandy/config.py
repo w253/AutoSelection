@@ -2,10 +2,38 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+
+
+def api_key(config):
+    """Read the selected key from the environment, then the root .env if present.
+
+    Supports the DataRecipe KEY=VALUE/export/quoted-value format. Does not execute
+    shell text, expand variables, mutate os.environ, or include secrets in YAML.
+    An unset variable falls back to .env; an empty result remains empty.
+    """
+    name = config["api_key_env"]
+    if os.environ.get(name):
+        return os.environ[name]
+    path = REPOSITORY_ROOT / ".env"
+    if path.is_file():
+        for raw in path.read_text(encoding="utf-8-sig").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[7:].lstrip()
+            key, separator, value = line.partition("=")
+            if separator and key.strip() == name:
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+                    value = value[1:-1]
+                return value
+    return ""
 
 
 def repository_path(value):

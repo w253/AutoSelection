@@ -1,7 +1,7 @@
 """读取并匹配AutoSelection使用的encoder-only SAE产物契约。
 
 本模块只检查``artifact.json``、``cfg.json``和``sae.safetensors``的静态元信息，
-确认产物类型、FP32编码器、mean-nonpadding pooling、模型身份、hookpoint和输入策略
+确认产物类型、FP32编码器、mean-nonpadding pooling、hookpoint和输入策略
 字段存在。匹配时比较产物内部元信息而不是目录名称；真正加载张量及再次核对权重
 形状由后续指标模块调用现有SAE加载接口完成。本模块不导入torch或NPU依赖。
 """
@@ -47,7 +47,7 @@ def _json_object(path: Path) -> Dict[str, Any]:
 def load_sae_artifact_contract(path: str | Path) -> SaeArtifactContract:
     """检查一个encoder-only SAE目录的静态文件与元信息契约。
 
-    逻辑：要求三个正式文件存在且权重非空，读取两个JSON对象，检查基础模型身份、
+    逻辑：要求三个正式文件存在且权重非空，读取两个JSON对象，检查
     hookpoint、输入策略和隐藏维度，并固定要求artifact_type为encoder_only、dtype为
     float32、pooling为mean_nonpadding；同时要求artifact与cfg中的d_in一致。
 
@@ -79,11 +79,6 @@ def load_sae_artifact_contract(path: str | Path) -> SaeArtifactContract:
     for key, expected in expected_values.items():
         if metadata.get(key) != expected:
             raise ValueError("SAE产物{}必须为{}".format(key, expected))
-    if (
-        not isinstance(metadata.get("model_identity"), dict)
-        or not metadata["model_identity"]
-    ):
-        raise ValueError("SAE产物缺少model_identity")
     if (
         not isinstance(metadata.get("hookpoint"), str)
         or not metadata["hookpoint"].strip()

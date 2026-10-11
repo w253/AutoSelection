@@ -3,11 +3,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from pathlib import Path
 import yaml
 
-from .config import load_yaml, repository_path, require
+from .config import load_yaml, repository_path, require, api_key
 from .training.config import load_training_config, validate_opd_config
 from .data.pool import FixedPool
 from .benchmarks.spec import load_benchmarks
@@ -97,10 +96,14 @@ def build_search(config, training, pool, main, sparse_cache, *, action=None, fee
     catalog_path.write_text(yaml.safe_dump(catalog, allow_unicode=True, sort_keys=False), encoding="utf-8")
     if action is None or feedback is None or selection is None:
         llm = config["llm"]
-        llm_config = LLMConfig(api_key=os.environ[llm["api_key_env"]], base_url=llm["base_url"], model=llm["model"])
+        from .llm import DandyLLMClient
+        key = api_key(llm)
+        llm_config = LLMConfig(api_key=key, base_url=llm["base_url"], model=llm["model"])
         action = ActionLLMGenerator(llm_config=llm_config, catalog_path=str(catalog_path), registered_operators=set(registry.names()))
         feedback = FeedbackLLM(llm_config)
         selection = SelectionLLM(llm_config)
+        client = DandyLLMClient(llm, key)
+        action.client = feedback.client = selection.client = client
     evaluator = evaluator or DandyEvaluator(pool, main, config, training, root / "candidates")
     options = config["search"]
     return MCTSSearchLoop(manager, executor, action, evaluator, str(catalog_path),
@@ -140,8 +143,8 @@ def run(path, *, resume=False):
 
     config, training = load_run(path)
     # Fail before expensive forward passes if the chosen credential is absent.
-    if not os.environ.get(config["llm"]["api_key_env"]):
-        raise ValueError("LLM API key 环境变量未设置")
+    if not api_key(config["llm"]):
+        raise ValueError("LLM API key 未在环境变量或根目录 .env 中设置")
     main, ood = load_benchmarks(config["benchmarks"])
     pool = FixedPool.from_config(training)
     root = Path(config["output_dir"])
